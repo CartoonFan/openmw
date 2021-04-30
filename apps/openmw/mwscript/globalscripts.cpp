@@ -186,7 +186,7 @@ namespace MWScript
         // make list of global scripts to be added
         std::vector<std::string> scripts;
 
-        scripts.push_back ("main");
+        scripts.emplace_back("main");
 
         for (MWWorld::Store<ESM::StartScript>::iterator iter =
             mStore.get<ESM::StartScript>().begin();
@@ -235,12 +235,19 @@ namespace MWScript
         }
     }
 
-    bool GlobalScripts::readRecord (ESM::ESMReader& reader, uint32_t type)
+    bool GlobalScripts::readRecord (ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap)
     {
         if (type==ESM::REC_GSCR)
         {
             ESM::GlobalScript script;
             script.load (reader);
+
+            if (script.mTargetRef.hasContentFile())
+            {
+                auto iter = contentFileMap.find(script.mTargetRef.mContentFile);
+                if (iter != contentFileMap.end())
+                    script.mTargetRef.mContentFile = iter->second;
+            }
 
             auto iter = mScripts.find (script.mId);
 
@@ -297,6 +304,15 @@ namespace MWScript
         }
 
         return iter->second->mLocals;
+    }
+
+    const Locals* GlobalScripts::getLocalsIfPresent (const std::string& name) const
+    {
+        std::string name2 = ::Misc::StringUtils::lowerCase (name);
+        auto iter = mScripts.find (name2);
+        if (iter==mScripts.end())
+            return nullptr;
+        return &iter->second->mLocals;
     }
 
     void GlobalScripts::updatePtrs(const MWWorld::Ptr& base, const MWWorld::Ptr& updated)

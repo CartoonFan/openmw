@@ -76,6 +76,7 @@ void CSMWorld::ImportLandTexturesCommand::redo()
     }
 
     std::vector<std::string> oldTextures;
+    oldTextures.reserve(texIndices.size());
     for (int index : texIndices)
     {
         oldTextures.push_back(LandTexture::createUniqueRecordId(oldPlugin, index));
@@ -290,7 +291,7 @@ void CSMWorld::CreateCommand::undo()
 }
 
 CSMWorld::RevertCommand::RevertCommand (IdTable& model, const std::string& id, QUndoCommand* parent)
-: QUndoCommand (parent), mModel (model), mId (id), mOld (0)
+: QUndoCommand (parent), mModel (model), mId (id), mOld (nullptr)
 {
     setText (("Revert record " + id).c_str());
 
@@ -326,7 +327,7 @@ void CSMWorld::RevertCommand::undo()
 
 CSMWorld::DeleteCommand::DeleteCommand (IdTable& model,
         const std::string& id, CSMWorld::UniversalId::Type type, QUndoCommand* parent)
-: QUndoCommand (parent), mModel (model), mId (id), mOld (0), mType(type)
+: QUndoCommand (parent), mModel (model), mId (id), mOld (nullptr), mType(type)
 {
     setText (("Delete record " + id).c_str());
 
@@ -397,11 +398,20 @@ void CSMWorld::CloneCommand::redo()
 {
     mModel.cloneRecord (mIdOrigin, mId, mType);
     applyModifications();
+    for (auto& value : mOverrideValues)
+    {
+        mModel.setData(mModel.getModelIndex (mId, value.first), value.second);
+    }
 }
 
 void CSMWorld::CloneCommand::undo()
 {
     mModel.removeRow (mModel.getModelIndex (mId, 0).row());
+}
+
+void CSMWorld::CloneCommand::setOverrideValue(int column, QVariant value)
+{
+    mOverrideValues.emplace_back(std::make_pair(column, value));
 }
 
 CSMWorld::CreatePathgridCommand::CreatePathgridCommand(IdTable& model, const std::string& id, QUndoCommand *parent)

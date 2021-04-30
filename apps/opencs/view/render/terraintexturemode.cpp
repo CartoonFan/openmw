@@ -119,7 +119,7 @@ void CSVRender::TerrainTextureMode::primaryEditPressed(const WorldspaceHitResult
     CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
     int index = landtexturesCollection.searchId(mBrushTexture);
 
-    if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == 0)
+    if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
     {
         undoStack.beginMacro ("Edit texture records");
         if(allowLandTextureEditing(mCellId))
@@ -133,7 +133,7 @@ void CSVRender::TerrainTextureMode::primaryEditPressed(const WorldspaceHitResult
 
 void CSVRender::TerrainTextureMode::primarySelectPressed(const WorldspaceHitResult& hit)
 {
-    if(hit.hit && hit.tag == 0)
+    if(hit.hit && hit.tag == nullptr)
     {
         selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 0, false);
     }
@@ -141,7 +141,7 @@ void CSVRender::TerrainTextureMode::primarySelectPressed(const WorldspaceHitResu
 
 void CSVRender::TerrainTextureMode::secondarySelectPressed(const WorldspaceHitResult& hit)
 {
-    if(hit.hit && hit.tag == 0)
+    if(hit.hit && hit.tag == nullptr)
     {
         selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 1, false);
     }
@@ -166,7 +166,7 @@ bool CSVRender::TerrainTextureMode::primaryEditStartDrag (const QPoint& pos)
     CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
     int index = landtexturesCollection.searchId(mBrushTexture);
 
-    if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == 0)
+    if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
     {
         undoStack.beginMacro ("Edit texture records");
         mIsEditing = true;
@@ -189,7 +189,7 @@ bool CSVRender::TerrainTextureMode::primarySelectStartDrag (const QPoint& pos)
 {
     WorldspaceHitResult hit = getWorldspaceWidget().mousePick (pos, getWorldspaceWidget().getInteractionMask());
     mDragMode = InteractionType_PrimarySelect;
-    if (!hit.hit || hit.tag != 0)
+    if (!hit.hit || hit.tag != nullptr)
     {
         mDragMode = InteractionType_None;
         return false;
@@ -202,7 +202,7 @@ bool CSVRender::TerrainTextureMode::secondarySelectStartDrag (const QPoint& pos)
 {
     WorldspaceHitResult hit = getWorldspaceWidget().mousePick (pos, getWorldspaceWidget().getInteractionMask());
     mDragMode = InteractionType_SecondarySelect;
-    if (!hit.hit || hit.tag != 0)
+    if (!hit.hit || hit.tag != nullptr)
     {
         mDragMode = InteractionType_None;
         return false;
@@ -222,7 +222,7 @@ void CSVRender::TerrainTextureMode::drag (const QPoint& pos, int diffX, int diff
         CSMWorld::IdCollection<CSMWorld::LandTexture>& landtexturesCollection = document.getData().getLandTextures();
         int index = landtexturesCollection.searchId(mBrushTexture);
 
-        if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == 0)
+        if (index != -1 && !landtexturesCollection.getRecord(index).isDeleted() && hit.hit && hit.tag == nullptr)
         {
             editTerrainTextureGrid(hit);
         }
@@ -231,13 +231,13 @@ void CSVRender::TerrainTextureMode::drag (const QPoint& pos, int diffX, int diff
     if (mDragMode == InteractionType_PrimarySelect)
     {
         WorldspaceHitResult hit = getWorldspaceWidget().mousePick (pos, getWorldspaceWidget().getInteractionMask());
-        if (hit.hit && hit.tag == 0) selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 0, true);
+        if (hit.hit && hit.tag == nullptr) selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 0, true);
     }
 
     if (mDragMode == InteractionType_SecondarySelect)
     {
         WorldspaceHitResult hit = getWorldspaceWidget().mousePick (pos, getWorldspaceWidget().getInteractionMask());
-        if (hit.hit && hit.tag == 0) selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 1, true);
+        if (hit.hit && hit.tag == nullptr) selectTerrainTextures(CSMWorld::CellCoordinates::toTextureCoords(hit.worldPos), 1, true);
     }
 }
 
@@ -427,14 +427,8 @@ void CSVRender::TerrainTextureMode::editTerrainTextureGrid(const WorldspaceHitRe
                         {
                             if (i_cell == cellX && j_cell == cellY && abs(i-xHitInCell) < r && abs(j-yHitInCell) < r)
                             {
-                                int distanceX(0);
-                                int distanceY(0);
-                                if (i_cell < cellX) distanceX = xHitInCell + landTextureSize * abs(i_cell-cellX) - i;
-                                if (j_cell < cellY) distanceY = yHitInCell + landTextureSize * abs(j_cell-cellY) - j;
-                                if (i_cell > cellX) distanceX = -xHitInCell + landTextureSize* abs(i_cell-cellX) + i;
-                                if (j_cell > cellY) distanceY = -yHitInCell + landTextureSize * abs(j_cell-cellY) + j;
-                                if (i_cell == cellX) distanceX = abs(i-xHitInCell);
-                                if (j_cell == cellY) distanceY = abs(j-yHitInCell);
+                                int distanceX = abs(i-xHitInCell);
+                                int distanceY = abs(j-yHitInCell);
                                 float distance = std::round(sqrt(pow(distanceX, 2)+pow(distanceY, 2)));
                                 float rf = static_cast<float>(mBrushSize) / 2;
                                 if (distance < rf) newTerrain[j*landTextureSize+i] = brushInt;
@@ -612,7 +606,7 @@ void CSVRender::TerrainTextureMode::createTexture(std::string textureFileName)
             newId = CSMWorld::LandTexture::createUniqueRecordId(0, counter);
             if (ltexTable.getRecord(newId).isDeleted() == 0) counter = (counter + 1) % maxCounter;
         }
-        catch (const std::exception& e)
+        catch (const std::exception&)
         {
             newId = CSMWorld::LandTexture::createUniqueRecordId(0, counter);
             freeIndexFound = true;

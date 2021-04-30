@@ -3,6 +3,8 @@
 #include <MyGUI_RenderManager.h>
 #include <algorithm>
 
+#include "myguicompat.h"
+
 namespace osgMyGUI
 {
 
@@ -22,22 +24,22 @@ namespace osgMyGUI
         {
         }
 
-        virtual void begin()
+        void begin() override
         {
             mTarget->begin();
         }
 
-        virtual void end()
+        void end() override
         {
             mTarget->end();
         }
 
-        virtual void doRender(MyGUI::IVertexBuffer* _buffer, MyGUI::ITexture* _texture, size_t _count)
+        void doRender(MyGUI::IVertexBuffer* _buffer, MyGUI::ITexture* _texture, size_t _count) override
         {
             mTarget->doRender(_buffer, _texture, _count);
         }
 
-        virtual const MyGUI::RenderTargetInfo& getInfo()
+        const MyGUI::RenderTargetInfo& getInfo() OPENMW_MYGUI_CONST_GETTER_3_4_1 override
         {
             mInfo = mTarget->getInfo();
             mInfo.hOffset = mHOffset;
@@ -51,7 +53,7 @@ namespace osgMyGUI
         MyGUI::IRenderTarget* mTarget;
         MyGUI::IntSize mViewSize;
         float mHOffset, mVOffset;
-        MyGUI::RenderTargetInfo mInfo;
+        mutable MyGUI::RenderTargetInfo mInfo;
     };
 
     MyGUI::ILayerItem *ScalingLayer::getLayerItemByPoint(int _left, int _top) const

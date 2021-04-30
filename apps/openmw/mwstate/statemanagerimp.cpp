@@ -48,8 +48,8 @@ void MWState::StateManager::cleanup (bool force)
         MWBase::Environment::get().getDialogueManager()->clear();
         MWBase::Environment::get().getJournal()->clear();
         MWBase::Environment::get().getScriptManager()->clear();
-        MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getWindowManager()->clear();
+        MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getInputManager()->clear();
         MWBase::Environment::get().getMechanicsManager()->clear();
 
@@ -118,8 +118,8 @@ void MWState::StateManager::askLoadRecent()
         {
             MWState::Slot lastSave = *character->begin();
             std::vector<std::string> buttons;
-            buttons.push_back("#{sYes}");
-            buttons.push_back("#{sNo}");
+            buttons.emplace_back("#{sYes}");
+            buttons.emplace_back("#{sNo}");
             std::string tag("%s");
             std::string message = MWBase::Environment::get().getWindowManager()->getGameSettingString("sLoadLastSaveMsg", tag);
             size_t pos = message.find(tag);
@@ -165,7 +165,7 @@ void MWState::StateManager::newGame (bool bypass)
         MWBase::Environment::get().getWindowManager()->pushGuiMode (MWGui::GM_MainMenu);
 
         std::vector<std::string> buttons;
-        buttons.push_back("#{sOk}");
+        buttons.emplace_back("#{sOk}");
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(error.str(), buttons);
     }
 }
@@ -306,7 +306,7 @@ void MWState::StateManager::saveGame (const std::string& description, const Slot
         Log(Debug::Error) << error.str();
 
         std::vector<std::string> buttons;
-        buttons.push_back("#{sOk}");
+        buttons.emplace_back("#{sOk}");
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(error.str(), buttons);
 
         // If no file was written, clean up the slot
@@ -451,6 +451,7 @@ void MWState::StateManager::loadGame (const Character *character, const std::str
                 case ESM::REC_LEVC:
                 case ESM::REC_LEVI:
                 case ESM::REC_CREA:
+                case ESM::REC_CONT:
                     MWBase::Environment::get().getWorld()->readRecord(reader, n.intval, contentFileMap);
                     break;
 
@@ -460,7 +461,7 @@ void MWState::StateManager::loadGame (const Character *character, const std::str
 
                 case ESM::REC_GSCR:
 
-                    MWBase::Environment::get().getScriptManager()->getGlobalScripts().readRecord (reader, n.intval);
+                    MWBase::Environment::get().getScriptManager()->getGlobalScripts().readRecord (reader, n.intval, contentFileMap);
                     break;
 
                 case ESM::REC_GMAP:
@@ -504,6 +505,7 @@ void MWState::StateManager::loadGame (const Character *character, const std::str
                                       character->getPath().filename().string());
 
         MWBase::Environment::get().getWindowManager()->setNewGame(false);
+        MWBase::Environment::get().getWorld()->saveLoaded();
         MWBase::Environment::get().getWorld()->setupPlayer();
         MWBase::Environment::get().getWorld()->renderPlayer();
         MWBase::Environment::get().getWindowManager()->updatePlayer();
@@ -538,6 +540,8 @@ void MWState::StateManager::loadGame (const Character *character, const std::str
             MWBase::Environment::get().getWorld()->changeToCell(cell->getCell()->getCellId(), pos, true, false);
         }
 
+        MWBase::Environment::get().getWorld()->updateProjectilesCasters();
+
         // Vanilla MW will restart startup scripts when a save game is loaded. This is unintuitive,
         // but some mods may be using it as a reload detector.
         MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
@@ -557,7 +561,7 @@ void MWState::StateManager::loadGame (const Character *character, const std::str
         MWBase::Environment::get().getWindowManager()->pushGuiMode (MWGui::GM_MainMenu);
 
         std::vector<std::string> buttons;
-        buttons.push_back("#{sOk}");
+        buttons.emplace_back("#{sOk}");
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox(error.str(), buttons);
     }
 }
@@ -633,8 +637,8 @@ bool MWState::StateManager::verifyProfile(const ESM::SavedGame& profile) const
     if (notFound)
     {
         std::vector<std::string> buttons;
-        buttons.push_back("#{sYes}");
-        buttons.push_back("#{sNo}");
+        buttons.emplace_back("#{sYes}");
+        buttons.emplace_back("#{sNo}");
         MWBase::Environment::get().getWindowManager()->interactiveMessageBox("#{sMissingMastersMsg}", buttons, true);
         int selectedButton = MWBase::Environment::get().getWindowManager()->readPressedButton();
         if (selectedButton == 1 || selectedButton == -1)

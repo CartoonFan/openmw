@@ -32,7 +32,7 @@ namespace Launcher
 
     public:
         explicit DataFilesPage (Files::ConfigurationManager &cfg, Config::GameSettings &gameSettings,
-                                Config::LauncherSettings &launcherSettings, QWidget *parent = 0);
+                                Config::LauncherSettings &launcherSettings, QWidget *parent = nullptr);
 
         QAbstractItemModel* profilesModel() const;
 
@@ -88,11 +88,7 @@ namespace Launcher
         QStringList previousSelectedFiles;
         QString mDataLocal;
 
-        void setPluginsCheckstates(Qt::CheckState state);
-
         void buildView();
-        void setupConfig();
-        void readConfig();
         void setProfile (int index, bool savePrevious);
         void setProfile (const QString &previous, const QString &current, bool savePrevious);
         void removeProfile (const QString &profile);

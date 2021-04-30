@@ -1,5 +1,5 @@
-#ifndef OPENMW_COMPONENTS_ESMTERRAIN_LANDMANAGER_H
-#define OPENMW_COMPONENTS_ESMTERRAIN_LANDMANAGER_H
+#ifndef OPENMW_MWRENDER_LANDMANAGER_H
+#define OPENMW_MWRENDER_LANDMANAGER_H
 
 #include <osg/Object>
 
@@ -23,7 +23,7 @@ namespace MWRender
         /// @note Will return nullptr if not found.
         osg::ref_ptr<ESMTerrain::LandObject> getLand(int x, int y);
 
-        virtual void reportStats(unsigned int frameNumber, osg::Stats* stats) const;
+        void reportStats(unsigned int frameNumber, osg::Stats* stats) const override;
 
     private:
         int mLoadFlags;

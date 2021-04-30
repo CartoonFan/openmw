@@ -18,9 +18,10 @@ Known Issues:
 
 New Features:
 - Dialogue to split item stacks now displays the name of the trapped soul for stacks of soul gems (#5362)
+- Basics of Collada animations are now supported via osgAnimation plugin (#5456)
 
 New Editor Features:
-- ?
+- Instance selection modes are now implemented (centred cube, corner-dragged cube, sphere) with four user-configurable actions (select only, add to selection, remove from selection, invert selection) (#3171)
 
 Bug Fixes:
 - NiParticleColorModifier in NIF files is now properly handled which solves issues regarding particle effects, e.g., smoke and fire (#1952, #3676)
@@ -33,7 +34,13 @@ Bug Fixes:
 - Morrowind legacy madness: Using a key on a trapped door/container now only disarms the trap if the door/container is locked (#5370)
 
 Editor Bug Fixes:
+- Deleted and moved objects within a cell are now saved properly (#832)
+- Disabled record sorting in Topic and Journal Info tables, implemented drag-move for records (#4357)
+- Topic and Journal Info records can now be cloned with a different parent Topic/Journal Id (#4363)
 - Verifier no longer checks for alleged 'race' entries in clothing body parts (#5400)
+- Loading mods now keeps the master index (#5675)
+- Flicker and crashing on XFCE4 fixed (#5703)
+- Collada models render properly in the Editor (#5713)
 
 Miscellaneous:
 - Prevent save-game bloating by using an appropriate fog texture format (#5108)

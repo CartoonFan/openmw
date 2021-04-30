@@ -1,10 +1,12 @@
 #include "shadervisitor.hpp"
 
 #include <osg/AlphaFunc>
-#include <osg/BlendFunc>
 #include <osg/Geometry>
+#include <osg/GLExtensions>
 #include <osg/Material>
+#include <osg/Multisample>
 #include <osg/Texture>
+#include <osg/ValueObject>
 
 #include <osgUtil/TangentSpaceGenerator>
 
@@ -14,8 +16,8 @@
 #include <components/vfs/manager.hpp>
 #include <components/sceneutil/riggeometry.hpp>
 #include <components/sceneutil/morphgeometry.hpp>
-#include <components/settings/settings.hpp>
 
+#include "removedalphafunc.hpp"
 #include "shadermanager.hpp"
 
 namespace Shader
@@ -25,7 +27,11 @@ namespace Shader
         : mShaderRequired(false)
         , mColorMode(0)
         , mMaterialOverridden(false)
-        , mBlendFuncOverridden(false)
+        , mAlphaTestOverridden(false)
+        , mAlphaBlendOverridden(false)
+        , mAlphaFunc(GL_ALWAYS)
+        , mAlphaRef(1.0)
+        , mAlphaBlend(false)
         , mNormalHeight(false)
         , mTexStageRequiringTangents(-1)
         , mNode(nullptr)
@@ -37,18 +43,20 @@ namespace Shader
 
     }
 
-    ShaderVisitor::ShaderVisitor(ShaderManager& shaderManager, Resource::ImageManager& imageManager, const std::string &defaultVsTemplate, const std::string &defaultFsTemplate)
+    ShaderVisitor::ShaderVisitor(ShaderManager& shaderManager, Resource::ImageManager& imageManager, const std::string &defaultShaderPrefix)
         : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
         , mForceShaders(false)
         , mAllowedToModifyStateSets(true)
         , mAutoUseNormalMaps(false)
         , mAutoUseSpecularMaps(false)
+        , mApplyLightingToEnvMaps(false)
+        , mConvertAlphaTestToAlphaToCoverage(false)
+        , mTranslucentFramebuffer(false)
         , mShaderManager(shaderManager)
         , mImageManager(imageManager)
-        , mDefaultVsTemplate(defaultVsTemplate)
-        , mDefaultFsTemplate(defaultFsTemplate)
+        , mDefaultShaderPrefix(defaultShaderPrefix)
     {
-        mRequirements.push_back(ShaderRequirements());
+        mRequirements.emplace_back();
     }
 
     void ShaderVisitor::setForceShaders(bool force)
@@ -79,6 +87,34 @@ namespace Shader
         return newStateSet.get();
     }
 
+    osg::UserDataContainer* getWritableUserDataContainer(osg::Object& object)
+    {
+        if (!object.getUserDataContainer())
+            return object.getOrCreateUserDataContainer();
+
+        osg::ref_ptr<osg::UserDataContainer> newUserData = static_cast<osg::UserDataContainer *>(object.getUserDataContainer()->clone(osg::CopyOp::SHALLOW_COPY));
+        object.setUserDataContainer(newUserData);
+        return newUserData.get();
+    }
+
+    osg::StateSet* getRemovedState(osg::StateSet& stateSet)
+    {
+        if (!stateSet.getUserDataContainer())
+            return nullptr;
+
+        return static_cast<osg::StateSet *>(stateSet.getUserDataContainer()->getUserObject("removedState"));
+    }
+
+    void updateRemovedState(osg::UserDataContainer& userData, osg::StateSet* stateSet)
+    {
+        unsigned int index = userData.getUserObjectIndex("removedState");
+        if (index < userData.getNumUserObjects())
+            userData.setUserObject(index, stateSet);
+        else
+            userData.addUserObject(stateSet);
+        stateSet->setName("removedState");
+    }
+
     const char* defaultTextures[] = { "diffuseMap", "normalMap", "emissiveMap", "darkMap", "detailMap", "envMap", "specularMap", "decalMap", "bumpMap" };
     bool isTextureNameRecognized(const std::string& name)
     {
@@ -94,6 +130,10 @@ namespace Shader
         if (mAllowedToModifyStateSets)
             writableStateSet = node.getStateSet();
         const osg::StateSet::TextureAttributeList& texAttributes = stateset->getTextureAttributeList();
+        bool shaderRequired = false;
+        if (node.getUserValue("shaderRequired", shaderRequired) && shaderRequired)
+            mRequirements.back().mShaderRequired = true;
+
         if (!texAttributes.empty())
         {
             const osg::Texture* diffuseMap = nullptr;
@@ -144,14 +184,12 @@ namespace Shader
                                 // Bump maps are off by default as well
                                 writableStateSet->setTextureMode(unit, GL_TEXTURE_2D, osg::StateAttribute::ON);
                             }
-                            else if (texName == "envMap")
+                            else if (texName == "envMap" && mApplyLightingToEnvMaps)
                             {
-                                static const bool preLightEnv = Settings::Manager::getBool("apply lighting to environment maps", "Shaders");
-                                if (preLightEnv)
-                                    mRequirements.back().mShaderRequired = true;
+                                mRequirements.back().mShaderRequired = true;
                             }
                         }
-                        else
+                        else if (!mTranslucentFramebuffer)
                             Log(Debug::Error) << "ShaderVisitor encountered unknown texture " << texture;
                     }
                 }
@@ -233,78 +271,81 @@ namespace Shader
                 if (!writableStateSet)
                     writableStateSet = getWritableStateSet(node);
                 // We probably shouldn't construct a new version of this each time as Uniforms use pointer comparison for early-out.
-                // Also it should probably belong to the shader manager
+                // Also it should probably belong to the shader manager or be applied by the shadows bin
                 writableStateSet->addUniform(new osg::Uniform("useDiffuseMapForShadowAlpha", true));
             }
         }
 
-        bool alphaSettingsChanged = false;
-        bool alphaTestShadows = false;
-
         const osg::StateSet::AttributeList& attributes = stateset->getAttributeList();
-        for (osg::StateSet::AttributeList::const_iterator it = attributes.begin(); it != attributes.end(); ++it)
+        osg::StateSet::AttributeList removedAttributes;
+        if (osg::ref_ptr<osg::StateSet> removedState = getRemovedState(*stateset))
+            removedAttributes = removedState->getAttributeList();
+        for (const auto& attributeMap : { attributes, removedAttributes })
         {
-            if (it->first.first == osg::StateAttribute::MATERIAL)
+            for (osg::StateSet::AttributeList::const_iterator it = attributeMap.begin(); it != attributeMap.end(); ++it)
             {
-                // This should probably be moved out of ShaderRequirements and be applied directly now it's a uniform instead of a define
-                if (!mRequirements.back().mMaterialOverridden || it->second.second & osg::StateAttribute::PROTECTED)
+                if (it->first.first == osg::StateAttribute::MATERIAL)
                 {
-                    if (it->second.second & osg::StateAttribute::OVERRIDE)
-                        mRequirements.back().mMaterialOverridden = true;
-
-                    const osg::Material* mat = static_cast<const osg::Material*>(it->second.first.get());
-
-                    if (!writableStateSet)
-                        writableStateSet = getWritableStateSet(node);
-
-                    int colorMode;
-                    switch (mat->getColorMode())
+                    // This should probably be moved out of ShaderRequirements and be applied directly now it's a uniform instead of a define
+                    if (!mRequirements.back().mMaterialOverridden || it->second.second & osg::StateAttribute::PROTECTED)
                     {
-                    case osg::Material::OFF:
-                        colorMode = 0;
-                        break;
-                    case osg::Material::EMISSION:
-                        colorMode = 1;
-                        break;
-                    default:
-                    case osg::Material::AMBIENT_AND_DIFFUSE:
-                        colorMode = 2;
-                        break;
-                    case osg::Material::AMBIENT:
-                        colorMode = 3;
-                        break;
-                    case osg::Material::DIFFUSE:
-                        colorMode = 4;
-                        break;
-                    case osg::Material::SPECULAR:
-                        colorMode = 5;
-                        break;
+                        if (it->second.second & osg::StateAttribute::OVERRIDE)
+                            mRequirements.back().mMaterialOverridden = true;
+
+                        const osg::Material* mat = static_cast<const osg::Material*>(it->second.first.get());
+
+                        if (!writableStateSet)
+                            writableStateSet = getWritableStateSet(node);
+
+                        int colorMode;
+                        switch (mat->getColorMode())
+                        {
+                        case osg::Material::OFF:
+                            colorMode = 0;
+                            break;
+                        case osg::Material::EMISSION:
+                            colorMode = 1;
+                            break;
+                        default:
+                        case osg::Material::AMBIENT_AND_DIFFUSE:
+                            colorMode = 2;
+                            break;
+                        case osg::Material::AMBIENT:
+                            colorMode = 3;
+                            break;
+                        case osg::Material::DIFFUSE:
+                            colorMode = 4;
+                            break;
+                        case osg::Material::SPECULAR:
+                            colorMode = 5;
+                            break;
+                        }
+
+                        mRequirements.back().mColorMode = colorMode;
                     }
-
-                    mRequirements.back().mColorMode = colorMode;
                 }
-            }
-            else if (it->first.first == osg::StateAttribute::BLENDFUNC)
-            {
-                if (!mRequirements.back().mBlendFuncOverridden || it->second.second & osg::StateAttribute::PROTECTED)
+                else if (it->first.first == osg::StateAttribute::ALPHAFUNC)
                 {
-                    if (it->second.second & osg::StateAttribute::OVERRIDE)
-                        mRequirements.back().mBlendFuncOverridden = true;
+                    if (!mRequirements.back().mAlphaTestOverridden || it->second.second & osg::StateAttribute::PROTECTED)
+                    {
+                        if (it->second.second & osg::StateAttribute::OVERRIDE)
+                            mRequirements.back().mAlphaTestOverridden = true;
 
-                    const osg::BlendFunc* blend = static_cast<const osg::BlendFunc*>(it->second.first.get());
-                    if (blend->getSource() == osg::BlendFunc::SRC_ALPHA || blend->getSource() == osg::BlendFunc::SRC_COLOR)
-                        alphaTestShadows = true;
-                    alphaSettingsChanged = true;
+                        const osg::AlphaFunc* alpha = static_cast<const osg::AlphaFunc*>(it->second.first.get());
+                        mRequirements.back().mAlphaFunc = alpha->getFunction();
+                        mRequirements.back().mAlphaRef = alpha->getReferenceValue();
+                    }
                 }
             }
-            // Eventually, move alpha testing to discard in shader adn remove deprecated state here
         }
-        // we don't need to check for glEnable/glDisable of blending as we always set it at the same time
-        if (alphaSettingsChanged)
+
+        unsigned int alphaBlend = stateset->getMode(GL_BLEND);
+        if (alphaBlend != osg::StateAttribute::INHERIT && (!mRequirements.back().mAlphaBlendOverridden || alphaBlend & osg::StateAttribute::PROTECTED))
         {
-            if (!writableStateSet)
-                writableStateSet = getWritableStateSet(node);
-            writableStateSet->addUniform(alphaTestShadows ? mShaderManager.getShadowMapAlphaTestEnableUniform() : mShaderManager.getShadowMapAlphaTestDisableUniform());
+            if (alphaBlend & osg::StateAttribute::OVERRIDE)
+                mRequirements.back().mAlphaBlendOverridden = true;
+
+            mRequirements.back().mAlphaBlend = alphaBlend & osg::StateAttribute::ON;
         }
     }
 
@@ -322,7 +363,10 @@ namespace Shader
     void ShaderVisitor::createProgram(const ShaderRequirements &reqs)
     {
         if (!reqs.mShaderRequired && !mForceShaders)
+        {
+            ensureFFP(*reqs.mNode);
             return;
+        }
 
         osg::Node& node = *reqs.mNode;
         osg::StateSet* writableStateSet = nullptr;
@@ -347,8 +391,65 @@ namespace Shader
 
         writableStateSet->addUniform(new osg::Uniform("colorMode", reqs.mColorMode));
 
-        osg::ref_ptr<osg::Shader> vertexShader (mShaderManager.getShader(mDefaultVsTemplate, defineMap, osg::Shader::VERTEX));
-        osg::ref_ptr<osg::Shader> fragmentShader (mShaderManager.getShader(mDefaultFsTemplate, defineMap, osg::Shader::FRAGMENT));
+        defineMap["alphaFunc"] = std::to_string(reqs.mAlphaFunc);
+
+        // back up removed state in case recreateShaders gets rid of the shader later
+        osg::ref_ptr<osg::StateSet> removedState;
+        if ((removedState = getRemovedState(*writableStateSet)) && !mAllowedToModifyStateSets)
+            removedState = new osg::StateSet(*removedState, osg::CopyOp::SHALLOW_COPY);
+        if (!removedState)
+            removedState = new osg::StateSet();
+
+        defineMap["alphaToCoverage"] = "0";
+        if (reqs.mAlphaFunc != osg::AlphaFunc::ALWAYS)
+        {
+            writableStateSet->addUniform(new osg::Uniform("alphaRef", reqs.mAlphaRef));
+
+            const auto* alphaFunc = writableStateSet->getAttributePair(osg::StateAttribute::ALPHAFUNC);
+            if (alphaFunc)
+                removedState->setAttribute(alphaFunc->first, alphaFunc->second);
+            // This prevents redundant glAlphaFunc calls while letting the shadows bin still see the test
+            writableStateSet->setAttribute(RemovedAlphaFunc::getInstance(reqs.mAlphaFunc), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+
+            // Blending won't work with A2C as we use the alpha channel for coverage. gl_SampleCoverage from ARB_sample_shading would save the day, but requires GLSL 130
+            if (mConvertAlphaTestToAlphaToCoverage && !reqs.mAlphaBlend)
+            {
+                writableStateSet->setMode(GL_SAMPLE_ALPHA_TO_COVERAGE_ARB, osg::StateAttribute::ON);
+                defineMap["alphaToCoverage"] = "1";
+            }
+
+            // Preventing alpha tested stuff shrinking as lower mip levels are used requires knowing the texture size
+            osg::ref_ptr<osg::GLExtensions> exts = osg::GLExtensions::Get(0, false);
+            if (exts && exts->isGpuShader4Supported)
+                defineMap["useGPUShader4"] = "1";
+            // We could fall back to a texture size uniform if EXT_gpu_shader4 is missing
+        }
+
+        if (writableStateSet->getMode(GL_ALPHA_TEST) != osg::StateAttribute::INHERIT)
+            removedState->setMode(GL_ALPHA_TEST, writableStateSet->getMode(GL_ALPHA_TEST));
+        // This disables the deprecated fixed-function alpha test
+        writableStateSet->setMode(GL_ALPHA_TEST, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED);
+
+        if (!removedState->getModeList().empty() || !removedState->getAttributeList().empty())
+        {
+            // user data is normally shallow copied so shared with the original stateset
+            osg::ref_ptr<osg::UserDataContainer> writableUserData;
+            if (mAllowedToModifyStateSets)
+                writableUserData = writableStateSet->getOrCreateUserDataContainer();
+            else
+                writableUserData = getWritableUserDataContainer(*writableStateSet);
+
+            updateRemovedState(*writableUserData, removedState);
+        }
+
+        defineMap["translucentFramebuffer"] = mTranslucentFramebuffer ? "1" : "0";
+
+        std::string shaderPrefix;
+        if (!node.getUserValue("shaderPrefix", shaderPrefix))
+            shaderPrefix = mDefaultShaderPrefix;
+
+        osg::ref_ptr<osg::Shader> vertexShader (mShaderManager.getShader(shaderPrefix + "_vertex.glsl", defineMap, osg::Shader::VERTEX));
+        osg::ref_ptr<osg::Shader> fragmentShader (mShaderManager.getShader(shaderPrefix + "_fragment.glsl", defineMap, osg::Shader::FRAGMENT));
 
         if (vertexShader && fragmentShader)
         {
@@ -358,6 +459,37 @@ namespace Shader
             {
                 writableStateSet->addUniform(new osg::Uniform(texIt->second.c_str(), texIt->first), osg::StateAttribute::ON);
             }
+        }
+    }
+
+    void ShaderVisitor::ensureFFP(osg::Node& node)
+    {
+        if (!node.getStateSet() || !node.getStateSet()->getAttribute(osg::StateAttribute::PROGRAM))
+            return;
+        osg::StateSet* writableStateSet = nullptr;
+        if (mAllowedToModifyStateSets)
+            writableStateSet = node.getStateSet();
+        else
+            writableStateSet = getWritableStateSet(node);
+
+        writableStateSet->removeAttribute(osg::StateAttribute::PROGRAM);
+
+        if (osg::ref_ptr<osg::StateSet> removedState = getRemovedState(*writableStateSet))
+        {
+            // user data is normally shallow copied so shared with the original stateset
+            osg::ref_ptr<osg::UserDataContainer> writableUserData;
+            if (mAllowedToModifyStateSets)
+                writableUserData = writableStateSet->getUserDataContainer();
+            else
+                writableUserData = getWritableUserDataContainer(*writableStateSet);
+            unsigned int index = writableUserData->getUserObjectIndex("removedState");
+            writableUserData->removeUserObject(index);
+
+            for (const auto& [mode, value] : removedState->getModeList())
+                writableStateSet->setMode(mode, value);
+
+            for (const auto& attribute : removedState->getAttributeList())
+                writableStateSet->setAttribute(attribute.second.first, attribute.second.second);
         }
     }
 
@@ -408,6 +540,8 @@ namespace Shader
 
             createProgram(reqs);
         }
+        else
+            ensureFFP(geometry);
 
         if (needPop)
             popRequirements();
@@ -442,6 +576,8 @@ namespace Shader
                     morph->setSourceGeometry(sourceGeometry);
             }
         }
+        else
+            ensureFFP(drawable);
 
         if (needPop)
             popRequirements();
@@ -475,6 +611,60 @@ namespace Shader
     void ShaderVisitor::setSpecularMapPattern(const std::string &pattern)
     {
         mSpecularMapPattern = pattern;
+    }
+
+    void ShaderVisitor::setApplyLightingToEnvMaps(bool apply)
+    {
+        mApplyLightingToEnvMaps = apply;
+    }
+
+    void ShaderVisitor::setConvertAlphaTestToAlphaToCoverage(bool convert)
+    {
+        mConvertAlphaTestToAlphaToCoverage = convert;
+    }
+
+    void ShaderVisitor::setTranslucentFramebuffer(bool translucent)
+    {
+        mTranslucentFramebuffer = translucent;
+    }
+
+    ReinstateRemovedStateVisitor::ReinstateRemovedStateVisitor(bool allowedToModifyStateSets)
+        : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
+        , mAllowedToModifyStateSets(allowedToModifyStateSets)
+    {
+    }
+
+    void ReinstateRemovedStateVisitor::apply(osg::Node& node)
+    {
+        if (node.getStateSet())
+        {
+            osg::ref_ptr<osg::StateSet> removedState = getRemovedState(*node.getStateSet());
+            if (removedState)
+            {
+                osg::ref_ptr<osg::StateSet> writableStateSet;
+                if (mAllowedToModifyStateSets)
+                    writableStateSet = node.getStateSet();
+                else
+                    writableStateSet = getWritableStateSet(node);
+
+                // user data is normally shallow copied so shared with the original stateset
+                osg::ref_ptr<osg::UserDataContainer> writableUserData;
+                if (mAllowedToModifyStateSets)
+                    writableUserData = writableStateSet->getUserDataContainer();
+                else
+                    writableUserData = getWritableUserDataContainer(*writableStateSet);
+                unsigned int index = writableUserData->getUserObjectIndex("removedState");
+                writableUserData->removeUserObject(index);
+
+                for (const auto&[mode, value] : removedState->getModeList())
+                    writableStateSet->setMode(mode, value);
+
+                for (const auto& attribute : removedState->getAttributeList())
+                    writableStateSet->setAttribute(attribute.second.first, attribute.second.second);
+            }
+        }
+
+        traverse(node);
     }
 
 }

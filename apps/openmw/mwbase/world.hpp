@@ -10,6 +10,8 @@
 
 #include <components/esm/cellid.hpp>
 
+#include <osg/Timer>
+
 #include "../mwworld/ptr.hpp"
 #include "../mwworld/doorstate.hpp"
 
@@ -36,6 +38,7 @@ namespace ESM
     struct Position;
     struct Cell;
     struct Class;
+    struct Container;
     struct Creature;
     struct Potion;
     struct Spell;
@@ -49,6 +52,11 @@ namespace ESM
     struct CreatureLevList;
     struct ItemLevList;
     struct TimeStamp;
+}
+
+namespace MWPhysics
+{
+    class RayCastingInterface;
 }
 
 namespace MWRender
@@ -172,11 +180,12 @@ namespace MWBase
             virtual char getGlobalVariableType (const std::string& name) const = 0;
             ///< Return ' ', if there is no global variable with this name.
 
-            virtual std::string getCellName (const MWWorld::CellStore *cell = 0) const = 0;
+            virtual std::string getCellName (const MWWorld::CellStore *cell = nullptr) const = 0;
             ///< Return name of the cell.
             ///
             /// \note If cell==0, the cell the player is currently in will be used instead to
             /// generate a name.
+            virtual std::string getCellName(const ESM::Cell* cell) const = 0;
 
             virtual void removeRefScript (MWWorld::RefData *ref) = 0;
             //< Remove the script attached to ref from mLocalScripts
@@ -272,10 +281,13 @@ namespace MWBase
             virtual void deleteObject (const MWWorld::Ptr& ptr) = 0;
             virtual void undeleteObject (const MWWorld::Ptr& ptr) = 0;
 
-            virtual MWWorld::Ptr moveObject (const MWWorld::Ptr& ptr, float x, float y, float z, bool moveToActive=false) = 0;
+            virtual MWWorld::Ptr moveObject (const MWWorld::Ptr& ptr, float x, float y, float z, bool movePhysics=true, bool moveToActive=false) = 0;
             ///< @return an updated Ptr in case the Ptr's cell changes
 
             virtual MWWorld::Ptr moveObject(const MWWorld::Ptr &ptr, MWWorld::CellStore* newCell, float x, float y, float z, bool movePhysics=true) = 0;
+            ///< @return an updated Ptr
+
+            virtual MWWorld::Ptr moveObjectBy(const MWWorld::Ptr &ptr, osg::Vec3f vec, bool moveToActive) = 0;
             ///< @return an updated Ptr
 
             virtual void scaleObject (const MWWorld::Ptr& ptr, float scale) = 0;
@@ -302,6 +314,8 @@ namespace MWBase
             /// doPhysics.
 
             virtual void updateAnimatedCollisionShape(const MWWorld::Ptr &ptr) = 0;
+
+            virtual const MWPhysics::RayCastingInterface* getRayCasting() const = 0;
 
             virtual bool castRay (float x1, float y1, float z1, float x2, float y2, float z2, int mask) = 0;
             ///< cast a Ray and return true if there is an object in the ray path.
@@ -378,8 +392,12 @@ namespace MWBase
             ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
             /// \return pointer to created record
 
+            virtual const ESM::Container *createOverrideRecord (const ESM::Container& record) = 0;
+            ///< Write this record to the ESM store, allowing it to override a pre-existing record with the same ID.
+            /// \return pointer to created record
+
             virtual void update (float duration, bool paused) = 0;
-            virtual void updatePhysics (float duration, bool paused) = 0;
+            virtual void updatePhysics (float duration, bool paused, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats) = 0;
 
             virtual void updateWindowManager () = 0;
 
@@ -416,12 +434,16 @@ namespace MWBase
 
             virtual void togglePOV(bool force = false) = 0;
             virtual bool isFirstPerson() const = 0;
+            virtual bool isPreviewModeEnabled() const = 0;
             virtual void togglePreviewMode(bool enable) = 0;
             virtual bool toggleVanityMode(bool enable) = 0;
             virtual void allowVanityMode(bool allow) = 0;
-            virtual void changeVanityModeScale(float factor) = 0;
             virtual bool vanityRotateCamera(float * rot) = 0;
-            virtual void setCameraDistance(float dist, bool adjust = false, bool override = true)=0;
+            virtual void adjustCameraDistance(float dist) = 0;
+            virtual void applyDeferredPreviewRotationToPlayer(float dt) = 0;
+            virtual void disableDeferredPreviewRotation() = 0;
+
+            virtual void saveLoaded() = 0;
 
             virtual void setupPlayer() = 0;
             virtual void renderPlayer() = 0;
@@ -478,7 +500,7 @@ namespace MWBase
 
             /// \todo this does not belong here
             virtual void screenshot (osg::Image* image, int w, int h) = 0;
-            virtual bool screenshot360 (osg::Image* image, std::string settingStr) = 0;
+            virtual bool screenshot360 (osg::Image* image) = 0;
 
             /// Find default position inside exterior cell specified by name
             /// \return false if exterior with given name not exists, true otherwise
@@ -500,7 +522,7 @@ namespace MWBase
             /// Returns true if levitation spell effect is allowed.
             virtual bool isLevitationEnabled() const = 0;
 
-            virtual bool getGodModeState() = 0;
+            virtual bool getGodModeState() const = 0;
 
             virtual bool toggleGodMode() = 0;
 
@@ -519,6 +541,7 @@ namespace MWBase
             virtual void launchMagicBolt (const std::string& spellId, const MWWorld::Ptr& caster, const osg::Vec3f& fallbackDirection) = 0;
             virtual void launchProjectile (MWWorld::Ptr& actor, MWWorld::Ptr& projectile,
                                            const osg::Vec3f& worldPos, const osg::Quat& orient, MWWorld::Ptr& bow, float speed, float attackStrength) = 0;
+            virtual void updateProjectilesCasters() = 0;
 
             virtual void applyLoopingParticles(const MWWorld::Ptr& ptr) = 0;
 
@@ -584,7 +607,7 @@ namespace MWBase
 
             /// Return a vector aiming the actor's weapon towards a target.
             /// @note The length of the vector is the distance between actor and target.
-            virtual osg::Vec3f aimToTarget(const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target) = 0;
+            virtual osg::Vec3f aimToTarget(const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target, bool isRangedCombat) = 0;
 
             /// Return the distance between actor's weapon and target's collision box.
             virtual float getHitDistance(const MWWorld::ConstPtr& actor, const MWWorld::ConstPtr& target) = 0;
@@ -632,6 +655,8 @@ namespace MWBase
             virtual bool isAreaOccupiedByOtherActor(const osg::Vec3f& position, const float radius, const MWWorld::ConstPtr& ignore) const = 0;
 
             virtual void reportStats(unsigned int frameNumber, osg::Stats& stats) const = 0;
+
+            virtual std::vector<MWWorld::Ptr> getAll(const std::string& id) = 0;
     };
 }
 

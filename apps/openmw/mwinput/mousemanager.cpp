@@ -29,22 +29,18 @@ namespace MWInput
         , mCameraYMultiplier(Settings::Manager::getFloat("camera y multiplier", "Input"))
         , mBindingsManager(bindingsManager)
         , mInputWrapper(inputWrapper)
-        , mInvUiScalingFactor(1.f)
         , mGuiCursorX(0)
         , mGuiCursorY(0)
         , mMouseWheel(0)
         , mMouseLookEnabled(false)
         , mGuiCursorEnabled(true)
     {
-        float uiScale = Settings::Manager::getFloat("scaling factor", "GUI");
-        if (uiScale != 0.f)
-            mInvUiScalingFactor = 1.f / uiScale;
-
         int w,h;
         SDL_GetWindowSize(window, &w, &h);
 
-        mGuiCursorX = mInvUiScalingFactor * w / 2.f;
-        mGuiCursorY = mInvUiScalingFactor * h / 2.f;
+        float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
+        mGuiCursorX = w / (2.f * uiScale);
+        mGuiCursorY = h / (2.f * uiScale);
     }
 
     void MouseManager::processChangedSettings(const Settings::CategorySettingVector& changed)
@@ -79,8 +75,9 @@ namespace MWInput
 
             // We keep track of our own mouse position, so that moving the mouse while in
             // game mode does not move the position of the GUI cursor
-            mGuiCursorX = static_cast<float>(arg.x) * mInvUiScalingFactor;
-            mGuiCursorY = static_cast<float>(arg.y) * mInvUiScalingFactor;
+            float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
+            mGuiCursorX = static_cast<float>(arg.x) / uiScale;
+            mGuiCursorY = static_cast<float>(arg.y) / uiScale;
 
             mMouseWheel = static_cast<int>(arg.z);
 
@@ -93,6 +90,8 @@ namespace MWInput
 
         if (mMouseLookEnabled && !input->controlsDisabled())
         {
+            MWBase::World* world = MWBase::Environment::get().getWorld();
+
             float x = arg.xrel * mCameraSensitivity * (mInvertX ? -1 : 1) / 256.f;
             float y = arg.yrel * mCameraSensitivity * (mInvertY ? -1 : 1) * mCameraYMultiplier / 256.f;
 
@@ -102,17 +101,14 @@ namespace MWInput
             rot[2] = -x;
 
             // Only actually turn player when we're not in vanity mode
-            if (!MWBase::Environment::get().getWorld()->vanityRotateCamera(rot) && input->getControlSwitch("playerlooking"))
+            if (!world->vanityRotateCamera(rot) && input->getControlSwitch("playerlooking"))
             {
-                MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
+                MWWorld::Player& player = world->getPlayer();
                 player.yaw(x);
                 player.pitch(y);
             }
-
-            if (arg.zrel && input->getControlSwitch("playerviewswitch") && input->getControlSwitch("playercontrols")) //Check to make sure you are allowed to zoomout and there is a change
-            {
-                MWBase::Environment::get().getWorld()->changeVanityModeScale(static_cast<float>(arg.zrel));
-            }
+            else if (!input->getControlSwitch("playerlooking"))
+                MWBase::Environment::get().getWorld()->disableDeferredPreviewRotation();
         }
     }
 
@@ -155,7 +151,7 @@ namespace MWInput
         {
             guiMode = MWBase::Environment::get().getWindowManager()->isGuiMode();
             guiMode = MyGUI::InputManager::getInstance().injectMousePress(static_cast<int>(mGuiCursorX), static_cast<int>(mGuiCursorY), sdlButtonToMyGUI(id)) && guiMode;
-            if (MyGUI::InputManager::getInstance().getMouseFocusWidget () != 0)
+            if (MyGUI::InputManager::getInstance().getMouseFocusWidget () != nullptr)
             {
                 MyGUI::Button* b = MyGUI::InputManager::getInstance().getMouseFocusWidget()->castType<MyGUI::Button>(false);
                 if (b && b->getEnabled() && id == SDL_BUTTON_LEFT)
@@ -207,17 +203,20 @@ namespace MWInput
             return;
 
         float rot[3];
-        rot[0] = yAxis * dt * 1000.0f * mCameraSensitivity * (mInvertY ? -1 : 1) * mCameraYMultiplier / 256.f;
+        rot[0] = -yAxis * dt * 1000.0f * mCameraSensitivity * (mInvertY ? -1 : 1) * mCameraYMultiplier / 256.f;
         rot[1] = 0.0f;
-        rot[2] = xAxis * dt * 1000.0f * mCameraSensitivity * (mInvertX ? -1 : 1) / 256.f;
+        rot[2] = -xAxis * dt * 1000.0f * mCameraSensitivity * (mInvertX ? -1 : 1) / 256.f;
 
         // Only actually turn player when we're not in vanity mode
-        if (!MWBase::Environment::get().getWorld()->vanityRotateCamera(rot) && MWBase::Environment::get().getInputManager()->getControlSwitch("playercontrols"))
+        bool controls = MWBase::Environment::get().getInputManager()->getControlSwitch("playercontrols");
+        if (!MWBase::Environment::get().getWorld()->vanityRotateCamera(rot) && controls)
         {
             MWWorld::Player& player = MWBase::Environment::get().getWorld()->getPlayer();
-            player.yaw(rot[2]);
-            player.pitch(rot[0]);
+            player.yaw(-rot[2]);
+            player.pitch(-rot[0]);
         }
+        else if (!controls)
+            MWBase::Environment::get().getWorld()->disableDeferredPreviewRotation();
 
         MWBase::Environment::get().getInputManager()->resetIdleTime();
     }
@@ -247,6 +246,7 @@ namespace MWInput
 
     void MouseManager::warpMouse()
     {
-        mInputWrapper->warpMouse(static_cast<int>(mGuiCursorX / mInvUiScalingFactor), static_cast<int>(mGuiCursorY / mInvUiScalingFactor));
+        float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
+        mInputWrapper->warpMouse(static_cast<int>(mGuiCursorX*uiScale), static_cast<int>(mGuiCursorY*uiScale));
     }
 }

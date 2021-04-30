@@ -8,12 +8,9 @@
 #include <BulletCollision/CollisionShapes/btBoxShape.h>
 #include <BulletCollision/CollisionShapes/btCompoundShape.h>
 
-#include <boost/optional/optional_io.hpp>
-
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
-#include <iterator>
 #include <deque>
 
 MATCHER_P3(Vec3fEq, x, y, z, "")
@@ -79,6 +76,17 @@ namespace
         }
     };
 
+    template <std::size_t size>
+    btHeightfieldTerrainShape makeSquareHeightfieldTerrainShape(const std::array<btScalar, size>& values,
+        btScalar heightScale = 1, int upAxis = 2, PHY_ScalarType heightDataType = PHY_FLOAT, bool flipQuadEdges = false)
+    {
+        const int width = static_cast<int>(std::sqrt(size));
+        const btScalar min = *std::min_element(values.begin(), values.end());
+        const btScalar max = *std::max_element(values.begin(), values.end());
+        const btScalar greater = std::max(std::abs(min), std::abs(max));
+        return btHeightfieldTerrainShape(width, width, values.data(), heightScale, -greater, greater, upAxis, heightDataType, flipQuadEdges);
+    }
+
     TEST_F(DetourNavigatorNavigatorTest, find_path_for_empty_should_return_empty)
     {
         EXPECT_EQ(mNavigator->findPath(mAgentHalfExtents, mStepSize, mStart, mEnd, Flag_walk, mAreaCosts, mOut),
@@ -111,7 +119,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -157,7 +165,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape heightfieldShape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape heightfieldShape = makeSquareHeightfieldTerrainShape(heightfieldData);
         heightfieldShape.setLocalScaling(btVector3(128, 128, 1));
 
         btBoxShape boxShape(btVector3(20, 20, 100));
@@ -241,7 +249,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape heightfieldShape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape heightfieldShape = makeSquareHeightfieldTerrainShape(heightfieldData);
         heightfieldShape.setLocalScaling(btVector3(128, 128, 1));
 
         btBoxShape boxShape(btVector3(20, 20, 100));
@@ -328,7 +336,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         const std::array<btScalar, 5 * 5> heightfieldData2 {{
@@ -338,7 +346,7 @@ namespace
             -25, -25, -25, -25, -25,
             -25, -25, -25, -25, -25,
         }};
-        btHeightfieldTerrainShape shape2(5, 5, heightfieldData2.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape2 = makeSquareHeightfieldTerrainShape(heightfieldData2);
         shape2.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -385,7 +393,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         std::array<btScalar, 5 * 5> heightfieldDataAvoid {{
@@ -395,7 +403,7 @@ namespace
             -25, -25, -25, -25, -25,
             -25, -25, -25, -25, -25,
         }};
-        btHeightfieldTerrainShape shapeAvoid(5, 5, heightfieldDataAvoid.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shapeAvoid = makeSquareHeightfieldTerrainShape(heightfieldDataAvoid);
         shapeAvoid.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -442,7 +450,7 @@ namespace
             -50, -100, -150, -100, -100,
               0,  -50, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -490,7 +498,7 @@ namespace
             0, -100, -100, -100, -100, -100, 0,
             0,    0,    0,    0,    0,    0, 0,
         }};
-        btHeightfieldTerrainShape shape(7, 7, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -537,7 +545,7 @@ namespace
             0, -100, -100, -100, -100, -100, 0,
             0,    0,    0,    0,    0,    0, 0,
         }};
-        btHeightfieldTerrainShape shape(7, 7, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -584,7 +592,7 @@ namespace
             0, -100, -100, -100, -100, -100, 0,
             0,    0,    0,    0,    0,    0, 0,
         }};
-        btHeightfieldTerrainShape shape(7, 7, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -629,7 +637,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -683,7 +691,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape shape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
         shape.setLocalScaling(btVector3(128, 128, 1));
 
         mNavigator->addAgent(mAgentHalfExtents);
@@ -714,7 +722,7 @@ namespace
             0, -25, -100, -100, -100,
             0, -25, -100, -100, -100,
         }};
-        btHeightfieldTerrainShape heightfieldShape(5, 5, heightfieldData.data(), 1, 0, 0, 2, PHY_FLOAT, false);
+        btHeightfieldTerrainShape heightfieldShape = makeSquareHeightfieldTerrainShape(heightfieldData);
         heightfieldShape.setLocalScaling(btVector3(128, 128, 1));
 
         const std::vector<btBoxShape> boxShapes(100, btVector3(20, 20, 100));
@@ -804,5 +812,78 @@ namespace
 
         EXPECT_GT(duration, mSettings.mMinUpdateInterval)
             << std::chrono::duration_cast<std::chrono::duration<float, std::milli>>(duration).count() << " ms";
+    }
+
+    TEST_F(DetourNavigatorNavigatorTest, update_then_raycast_should_return_position)
+    {
+        const std::array<btScalar, 5 * 5> heightfieldData {{
+            0,   0,    0,    0,    0,
+            0, -25,  -25,  -25,  -25,
+            0, -25, -100, -100, -100,
+            0, -25, -100, -100, -100,
+            0, -25, -100, -100, -100,
+        }};
+        btHeightfieldTerrainShape shape = makeSquareHeightfieldTerrainShape(heightfieldData);
+        shape.setLocalScaling(btVector3(128, 128, 1));
+
+        mNavigator->addAgent(mAgentHalfExtents);
+        mNavigator->addObject(ObjectId(&shape), shape, btTransform::getIdentity());
+        mNavigator->update(mPlayerPosition);
+        mNavigator->wait();
+
+        const auto result = mNavigator->raycast(mAgentHalfExtents, mStart, mEnd, Flag_walk);
+
+        ASSERT_THAT(result, Optional(Vec3fEq(mEnd.x(), mEnd.y(), 1.87719)));
+    }
+
+    TEST_F(DetourNavigatorNavigatorTest, update_for_oscillating_object_that_does_not_change_navmesh_should_not_trigger_navmesh_update)
+    {
+        const std::array<btScalar, 5 * 5> heightfieldData {{
+            0,   0,    0,    0,    0,
+            0, -25,  -25,  -25,  -25,
+            0, -25, -100, -100, -100,
+            0, -25, -100, -100, -100,
+            0, -25, -100, -100, -100,
+        }};
+        btHeightfieldTerrainShape heightfieldShape = makeSquareHeightfieldTerrainShape(heightfieldData);
+        heightfieldShape.setLocalScaling(btVector3(128, 128, 1));
+
+        const btBoxShape oscillatingBoxShape(btVector3(20, 20, 20));
+        const btVector3 oscillatingBoxShapePosition(32, 32, 400);
+        const btBoxShape boderBoxShape(btVector3(50, 50, 50));
+
+        mNavigator->addAgent(mAgentHalfExtents);
+        mNavigator->addObject(ObjectId(&heightfieldShape), heightfieldShape, btTransform::getIdentity());
+        mNavigator->addObject(ObjectId(&oscillatingBoxShape), oscillatingBoxShape,
+                              btTransform(btMatrix3x3::getIdentity(), oscillatingBoxShapePosition));
+        // add this box to make navmesh bound box independent from oscillatingBoxShape rotations
+        mNavigator->addObject(ObjectId(&boderBoxShape), boderBoxShape,
+                              btTransform(btMatrix3x3::getIdentity(), oscillatingBoxShapePosition + btVector3(0, 0, 200)));
+        mNavigator->update(mPlayerPosition);
+        mNavigator->wait();
+
+        const auto navMeshes = mNavigator->getNavMeshes();
+        ASSERT_EQ(navMeshes.size(), 1);
+        {
+            const auto navMesh = navMeshes.begin()->second->lockConst();
+            ASSERT_EQ(navMesh->getGeneration(), 1);
+            ASSERT_EQ(navMesh->getNavMeshRevision(), 4);
+        }
+
+        for (int n = 0; n < 10; ++n)
+        {
+            const btTransform transform(btQuaternion(btVector3(0, 0, 1), n * 2 * osg::PI / 10),
+                                        oscillatingBoxShapePosition);
+            mNavigator->updateObject(ObjectId(&oscillatingBoxShape), oscillatingBoxShape, transform);
+            mNavigator->update(mPlayerPosition);
+            mNavigator->wait();
+        }
+
+        ASSERT_EQ(navMeshes.size(), 1);
+        {
+            const auto navMesh = navMeshes.begin()->second->lockConst();
+            ASSERT_EQ(navMesh->getGeneration(), 1);
+            ASSERT_EQ(navMesh->getNavMeshRevision(), 4);
+        }
     }
 }

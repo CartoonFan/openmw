@@ -37,7 +37,7 @@ namespace
         for (typename MWWorld::CellRefList<T>::List::iterator iter (containerList.mList.begin());
              iter!=containerList.mList.end(); ++iter)
         {
-            MWWorld::Ptr container (&*iter, 0);
+            MWWorld::Ptr container (&*iter, nullptr);
 
             if (container.getRefData().getCustomData() == nullptr)
                 continue;
@@ -104,6 +104,45 @@ namespace
         }
     }
 
+    template<class RecordType, class T>
+    void fixRestockingImpl(const T* base, RecordType& state)
+    {
+        // Workaround for old saves not containing negative quantities
+        for(const auto& baseItem : base->mInventory.mList)
+        {
+            if(baseItem.mCount < 0)
+            {
+                for(auto& item : state.mInventory.mItems)
+                {
+                    if(item.mCount > 0 && Misc::StringUtils::ciEqual(baseItem.mItem, item.mRef.mRefID))
+                        item.mCount = -item.mCount;
+                }
+            }
+        }
+    }
+
+    template<class RecordType, class T>
+    void fixRestocking(const T* base, RecordType& state)
+    {}
+
+    template<>
+    void fixRestocking<>(const ESM::Creature* base, ESM::CreatureState& state)
+    {
+        fixRestockingImpl(base, state);
+    }
+
+    template<>
+    void fixRestocking<>(const ESM::NPC* base, ESM::NpcState& state)
+    {
+        fixRestockingImpl(base, state);
+    }
+
+    template<>
+    void fixRestocking<>(const ESM::Container* base, ESM::ContainerState& state)
+    {
+        fixRestockingImpl(base, state);
+    }
+
     template<typename RecordType, typename T>
     void readReferenceCollection (ESM::ESMReader& reader,
         MWWorld::CellRefList<T>& collection, const ESM::CellRef& cref, const std::map<int, int>& contentFileMap, MWWorld::CellStore* cellstore)
@@ -133,6 +172,9 @@ namespace
 
         if (!record)
             return;
+
+        if (state.mVersion < 15)
+            fixRestocking(record, state);
 
         if (state.mRef.mRefNum.hasContentFile())
         {
@@ -687,7 +729,11 @@ namespace MWWorld
             case ESM::REC_NPC_: mNpcs.load(ref, deleted, store); break;
             case ESM::REC_PROB: mProbes.load(ref, deleted, store); break;
             case ESM::REC_REPA: mRepairs.load(ref, deleted, store); break;
-            case ESM::REC_STAT: mStatics.load(ref, deleted, store); break;
+            case ESM::REC_STAT:
+            {
+                if (ref.mRefNum.fromGroundcoverFile()) return;
+                mStatics.load(ref, deleted, store); break;
+            }
             case ESM::REC_WEAP: mWeapons.load(ref, deleted, store); break;
             case ESM::REC_BODY: mBodyParts.load(ref, deleted, store); break;
 
@@ -917,6 +963,13 @@ namespace MWWorld
             refnum.load(reader, true, "MVRF");
             movedTo.load(reader);
 
+            if (refnum.hasContentFile())
+            {
+                auto iter = contentFileMap.find(refnum.mContentFile);
+                if (iter != contentFileMap.end())
+                    refnum.mContentFile = iter->second;
+            }
+
             // Search for the reference. It might no longer exist if its content file was removed.
             Ptr movedRef = searchViaRefNum(refnum);
             if (movedRef.isEmpty())
@@ -1030,7 +1083,8 @@ namespace MWWorld
             for (CellRefList<ESM::Container>::List::iterator it (mContainers.mList.begin()); it!=mContainers.mList.end(); ++it)
             {
                 Ptr ptr = getCurrentPtr(&*it);
-                if (!ptr.isEmpty() && ptr.getRefData().getCustomData() != nullptr && ptr.getRefData().getCount() > 0)
+                if (!ptr.isEmpty() && ptr.getRefData().getCustomData() != nullptr && ptr.getRefData().getCount() > 0
+                && ptr.getClass().getContainerStore(ptr).isResolved())
                 {
                     ptr.getClass().getContainerStore(ptr).rechargeItems(duration);
                 }

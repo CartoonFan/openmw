@@ -30,7 +30,7 @@ namespace Video
 struct AudioResampler
 {
     AudioResampler()
-        : mSwr(NULL)
+        : mSwr(nullptr)
     {
     }
 
@@ -51,8 +51,8 @@ MovieAudioDecoder::MovieAudioDecoder(VideoState* videoState)
     , mFramePos(0)
     , mFrameSize(0)
     , mAudioClock(0.0)
-    , mDataBuf(NULL)
-    , mFrameData(NULL)
+    , mDataBuf(nullptr)
+    , mFrameData(nullptr)
     , mDataBufLen(0)
     , mFrame(av_frame_alloc())
     , mGetNextPacket(true)
@@ -91,7 +91,7 @@ MovieAudioDecoder::~MovieAudioDecoder()
     if(mAudioContext)
         avcodec_free_context(&mAudioContext);
 
-    av_freep(&mFrame);
+    av_frame_free(&mFrame);
     av_freep(&mDataBuf);
 }
 
@@ -125,7 +125,7 @@ void MovieAudioDecoder::setupFormat()
                           inputSampleFormat,
                           inputSampleRate,
                           0,                             // logging level offset
-                          NULL);                         // log context
+                          nullptr);                      // log context
         if(!mAudioResampler->mSwr)
             fail(std::string("Couldn't allocate SwrContext"));
         if(swr_init(mAudioResampler->mSwr) < 0)
@@ -222,7 +222,7 @@ int MovieAudioDecoder::audio_decode_frame(AVFrame *frame, int &sample_skip)
             return result;
         }
 
-        av_packet_unref(&mPacket);
+        av_packet_unref(pkt);
         mGetNextPacket = true;
 
         /* next packet */

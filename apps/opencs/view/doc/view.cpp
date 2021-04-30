@@ -438,8 +438,8 @@ void CSVDoc::View::updateActions()
     for (std::vector<QAction *>::iterator iter (mEditingActions.begin()); iter!=mEditingActions.end(); ++iter)
         (*iter)->setEnabled (editing);
 
-    mUndo->setEnabled (editing & mDocument->getUndoStack().canUndo());
-    mRedo->setEnabled (editing & mDocument->getUndoStack().canRedo());
+    mUndo->setEnabled (editing && mDocument->getUndoStack().canUndo());
+    mRedo->setEnabled (editing && mDocument->getUndoStack().canRedo());
 
     mSave->setEnabled (!(mDocument->getState() & CSMDoc::State_Saving) && !running);
     mVerify->setEnabled (!(mDocument->getState() & CSMDoc::State_Verifying));
@@ -733,7 +733,7 @@ void CSVDoc::View::infoAbout()
 #endif
 
     // Get current year
-    time_t now = time(NULL);
+    time_t now = time(nullptr);
     struct tm tstruct;
     char copyrightInfo[40];
     tstruct = *localtime(&now);

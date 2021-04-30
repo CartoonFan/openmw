@@ -28,7 +28,7 @@ namespace Compiler
             blank();
         }
 
-        MultiChar(const char ch)
+        explicit MultiChar(const char ch)
         {
             blank();
             mData[0] = ch;
@@ -36,7 +36,7 @@ namespace Compiler
             mLength = getCharLength(ch);
         }
 
-        int getCharLength(const char ch)
+        static int getCharLength(const char ch)
         {
             unsigned char c = ch;
             if (c<=127) return 0;
@@ -140,15 +140,12 @@ namespace Compiler
 
             for (int i = 0; i <= length; i++)
             {
-                if (length >= i)
-                {
-                    in.get (ch);
+                in.get (ch);
 
-                    if (!in.good())
-                        return false;
+                if (!in.good())
+                    return false;
 
-                    mData[i] = ch;
-                }
+                mData[i] = ch;
             }
 
             mLength = length;
@@ -170,8 +167,8 @@ namespace Compiler
         }
 
     private:
-        char mData[4];
-        int mLength;
+        char mData[4]{};
+        int mLength{};
     };
 
     class Scanner
@@ -251,7 +248,7 @@ namespace Compiler
         public:
 
             Scanner (ErrorHandler& errorHandler, std::istream& inputStream,
-                const Extensions *extensions = 0);
+                const Extensions *extensions = nullptr);
             ///< constructor
 
             void scan (Parser& parser);

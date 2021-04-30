@@ -15,8 +15,11 @@ namespace Wizard
     public:
         MethodSelectionPage(QWidget *parent);
 
-        int nextId() const;
+        int nextId() const override;
 
+    private slots:
+        void handleBuyButton();
+        
     private:
         MainWizard *mWizard;
 

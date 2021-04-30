@@ -20,7 +20,7 @@ namespace Launcher
         Q_OBJECT
 
     public:
-        GraphicsPage(Files::ConfigurationManager &cfg, Settings::Manager &engineSettings, QWidget *parent = 0);
+        GraphicsPage(Settings::Manager &engineSettings, QWidget *parent = nullptr);
 
         void saveSettings();
         bool loadSettings();
@@ -35,8 +35,9 @@ namespace Launcher
         void slotShadowDistLimitToggled(bool checked);
 
     private:
-        Files::ConfigurationManager &mCfgMgr;
         Settings::Manager &mEngineSettings;
+
+        QVector<QStringList> mResolutionsPerScreen;
 
         static QStringList getAvailableResolutions(int screen);
         static QRect getMaximumResolution();

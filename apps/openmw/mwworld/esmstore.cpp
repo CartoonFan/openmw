@@ -9,6 +9,98 @@
 #include <components/esm/esmreader.hpp>
 #include <components/esm/esmwriter.hpp>
 
+#include "../mwmechanics/spelllist.hpp"
+
+namespace
+{
+    void readRefs(const ESM::Cell& cell, std::map<ESM::RefNum, std::string>& refs, std::vector<ESM::ESMReader>& readers)
+    {
+        for (size_t i = 0; i < cell.mContextList.size(); i++)
+        {
+            size_t index = cell.mContextList[i].index;
+            if (readers.size() <= index)
+                readers.resize(index + 1);
+            cell.restore(readers[index], i);
+            ESM::CellRef ref;
+            ref.mRefNum.mContentFile = ESM::RefNum::RefNum_NoContentFile;
+            bool deleted = false;
+            while(cell.getNextRef(readers[index], ref, deleted))
+            {
+                if(deleted)
+                    refs.erase(ref.mRefNum);
+                else if (std::find(cell.mMovedRefs.begin(), cell.mMovedRefs.end(), ref.mRefNum) == cell.mMovedRefs.end())
+                {
+                    Misc::StringUtils::lowerCaseInPlace(ref.mRefID);
+                    refs[ref.mRefNum] = ref.mRefID;
+                }
+            }
+        }
+        for(const auto& it : cell.mLeasedRefs)
+        {
+            bool deleted = it.second;
+            if(deleted)
+                refs.erase(it.first.mRefNum);
+            else
+            {
+                ESM::CellRef ref = it.first;
+                Misc::StringUtils::lowerCaseInPlace(ref.mRefID);
+                refs[ref.mRefNum] = ref.mRefID;
+            }
+        }
+    }
+
+    std::vector<ESM::NPC> getNPCsToReplace(const MWWorld::Store<ESM::Faction>& factions, const MWWorld::Store<ESM::Class>& classes, const std::map<std::string, ESM::NPC>& npcs)
+    {
+        // Cache first class from store - we will use it if current class is not found
+        std::string defaultCls;
+        auto it = classes.begin();
+        if (it != classes.end())
+            defaultCls = it->mId;
+        else
+            throw std::runtime_error("List of NPC classes is empty!");
+
+        // Validate NPCs for non-existing class and faction.
+        // We will replace invalid entries by fixed ones
+        std::vector<ESM::NPC> npcsToReplace;
+
+        for (auto npcIter : npcs)
+        {
+            ESM::NPC npc = npcIter.second;
+            bool changed = false;
+
+            const std::string npcFaction = npc.mFaction;
+            if (!npcFaction.empty())
+            {
+                const ESM::Faction *fact = factions.search(npcFaction);
+                if (!fact)
+                {
+                    Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent faction '" << npc.mFaction << "', ignoring it.";
+                    npc.mFaction.clear();
+                    npc.mNpdt.mRank = 0;
+                    changed = true;
+                }
+            }
+
+            std::string npcClass = npc.mClass;
+            if (!npcClass.empty())
+            {
+                const ESM::Class *cls = classes.search(npcClass);
+                if (!cls)
+                {
+                    Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent class '" << npc.mClass << "', using '" << defaultCls << "' class as replacement.";
+                    npc.mClass = defaultCls;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+                npcsToReplace.push_back(npc);
+        }
+
+        return npcsToReplace;
+    }
+}
+
 namespace MWWorld
 {
 
@@ -30,7 +122,7 @@ void ESMStore::load(ESM::ESMReader &esm, Loading::Listener* listener)
 {
     listener->setProgressRange(1000);
 
-    ESM::Dialogue *dialogue = 0;
+    ESM::Dialogue *dialogue = nullptr;
 
     // Land texture loading needs to use a separate internal store for each plugin.
     // We set the number of plugins here to avoid continual resizes during loading,
@@ -112,7 +204,7 @@ void ESMStore::load(ESM::ESMReader &esm, Loading::Listener* listener)
             if (n.intval==ESM::REC_DIAL) {
                 dialogue = const_cast<ESM::Dialogue*>(mDialogs.find(id.mId));
             } else {
-                dialogue = 0;
+                dialogue = nullptr;
             }
         }
         listener->setProgress(static_cast<size_t>(esm.getFileOffset() / (float)esm.getFileSize() * 1000));
@@ -146,54 +238,38 @@ void ESMStore::setUp(bool validateRecords)
     mDialogs.setUp();
 
     if (validateRecords)
+    {
         validate();
+        countRecords();
+    }
+}
+
+void ESMStore::countRecords()
+{
+    if(!mRefCount.empty())
+        return;
+    std::map<ESM::RefNum, std::string> refs;
+    std::vector<ESM::ESMReader> readers;
+    for(auto it = mCells.intBegin(); it != mCells.intEnd(); it++)
+        readRefs(*it, refs, readers);
+    for(auto it = mCells.extBegin(); it != mCells.extEnd(); it++)
+        readRefs(*it, refs, readers);
+    for(const auto& pair : refs)
+        mRefCount[pair.second]++;
+}
+
+int ESMStore::getRefCount(const std::string& id) const
+{
+    const std::string lowerId = Misc::StringUtils::lowerCase(id);
+    auto it = mRefCount.find(lowerId);
+    if(it == mRefCount.end())
+        return 0;
+    return it->second;
 }
 
 void ESMStore::validate()
 {
-    // Cache first class from store - we will use it if current class is not found
-    std::string defaultCls = "";
-    Store<ESM::Class>::iterator it = mClasses.begin();
-    if (it != mClasses.end())
-        defaultCls = it->mId;
-    else
-        throw std::runtime_error("List of NPC classes is empty!");
-
-    // Validate NPCs for non-existing class and faction.
-    // We will replace invalid entries by fixed ones
-    std::vector<ESM::NPC> npcsToReplace;
-    for (ESM::NPC npc : mNpcs)
-    {
-        bool changed = false;
-
-        const std::string npcFaction = npc.mFaction;
-        if (!npcFaction.empty())
-        {
-            const ESM::Faction *fact = mFactions.search(npcFaction);
-            if (!fact)
-            {
-                Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent faction '" << npc.mFaction << "', ignoring it.";
-                npc.mFaction.clear();
-                npc.mNpdt.mRank = 0;
-                changed = true;
-            }
-        }
-
-        std::string npcClass = npc.mClass;
-        if (!npcClass.empty())
-        {
-            const ESM::Class *cls = mClasses.search(npcClass);
-            if (!cls)
-            {
-                Log(Debug::Verbose) << "NPC '" << npc.mId << "' (" << npc.mName << ") has nonexistent class '" << npc.mClass << "', using '" << defaultCls << "' class as replacement.";
-                npc.mClass = defaultCls;
-                changed = true;
-            }
-        }
-
-        if (changed)
-            npcsToReplace.push_back(npc);
-    }
+    std::vector<ESM::NPC> npcsToReplace = getNPCsToReplace(mFactions, mClasses, mNpcs.mStatic);
 
     for (const ESM::NPC &npc : npcsToReplace)
     {
@@ -264,6 +340,14 @@ void ESMStore::validate()
     }
 }
 
+void ESMStore::validateDynamic()
+{
+    std::vector<ESM::NPC> npcsToReplace = getNPCsToReplace(mFactions, mClasses, mNpcs.mDynamic);
+
+    for (const ESM::NPC &npc : npcsToReplace)
+        mNpcs.insert(npc);
+}
+
     int ESMStore::countSavedGameRecords() const
     {
         return 1 // DYNA (dynamic name counter)
@@ -278,7 +362,8 @@ void ESMStore::validate()
             +mWeapons.getDynamicSize()
             +mCreatureLists.getDynamicSize()
             +mItemLists.getDynamicSize()
-            +mCreatures.getDynamicSize();
+            +mCreatures.getDynamicSize()
+            +mContainers.getDynamicSize();
     }
 
     void ESMStore::write (ESM::ESMWriter& writer, Loading::Listener& progress) const
@@ -301,6 +386,7 @@ void ESMStore::validate()
         mItemLists.write (writer, progress);
         mCreatureLists.write (writer, progress);
         mCreatures.write (writer, progress);
+        mContainers.write (writer, progress);
     }
 
     bool ESMStore::readRecord (ESM::ESMReader& reader, uint32_t type)
@@ -315,11 +401,14 @@ void ESMStore::validate()
             case ESM::REC_ENCH:
             case ESM::REC_SPEL:
             case ESM::REC_WEAP:
-            case ESM::REC_NPC_:
             case ESM::REC_LEVI:
             case ESM::REC_LEVC:
-            case ESM::REC_CREA:
                 mStores[type]->read (reader);
+                return true;
+            case ESM::REC_NPC_:
+            case ESM::REC_CREA:
+            case ESM::REC_CONT:
+                mStores[type]->read (reader, true);
                 return true;
 
             case ESM::REC_DYNA:
@@ -344,4 +433,23 @@ void ESMStore::validate()
             throw std::runtime_error ("Invalid player record (race or class unavailable");
     }
 
+    std::pair<std::shared_ptr<MWMechanics::SpellList>, bool> ESMStore::getSpellList(const std::string& originalId) const
+    {
+        const std::string id = Misc::StringUtils::lowerCase(originalId);
+        auto result = mSpellListCache.find(id);
+        std::shared_ptr<MWMechanics::SpellList> ptr;
+        if (result != mSpellListCache.end())
+            ptr = result->second.lock();
+        if (!ptr)
+        {
+            int type = find(id);
+            ptr = std::make_shared<MWMechanics::SpellList>(id, type);
+            if (result != mSpellListCache.end())
+                result->second = ptr;
+            else
+                mSpellListCache.insert({id, ptr});
+            return {ptr, false};
+        }
+        return {ptr, true};
+    }
 } // end namespace

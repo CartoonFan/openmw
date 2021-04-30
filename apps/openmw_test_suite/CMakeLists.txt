@@ -1,5 +1,5 @@
-find_package(GTest REQUIRED)
-find_package(GMock REQUIRED)
+find_package(GTest 1.10 REQUIRED)
+find_package(GMock 1.10 REQUIRED)
 
 if (GTEST_FOUND AND GMOCK_FOUND)
     include_directories(SYSTEM ${GTEST_INCLUDE_DIRS})
@@ -13,8 +13,10 @@ if (GTEST_FOUND AND GMOCK_FOUND)
         mwdialogue/test_keywordsearch.cpp
 
         esm/test_fixed_string.cpp
+        esm/variant.cpp
 
         misc/test_stringops.cpp
+        misc/test_endianness.cpp
 
         nifloader/testbulletnifloader.cpp
 

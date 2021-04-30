@@ -559,6 +559,7 @@ namespace DetourNavigator
         }
 
         auto cachedNavMeshData = navMeshTilesCache.get(agentHalfExtents, changedTile, *recastMesh, offMeshConnections);
+        bool cached = static_cast<bool>(cachedNavMeshData);
 
         if (!cachedNavMeshData)
         {
@@ -575,16 +576,8 @@ namespace DetourNavigator
                 return navMeshCacheItem->lock()->removeTile(changedTile);
             }
 
-            try
-            {
-                cachedNavMeshData = navMeshTilesCache.set(agentHalfExtents, changedTile, *recastMesh,
-                                                          offMeshConnections, std::move(navMeshData));
-            }
-            catch (const InvalidArgument&)
-            {
-                cachedNavMeshData = navMeshTilesCache.get(agentHalfExtents, changedTile, *recastMesh,
-                                                          offMeshConnections);
-            }
+            cachedNavMeshData = navMeshTilesCache.set(agentHalfExtents, changedTile, *recastMesh,
+                                                      offMeshConnections, std::move(navMeshData));
 
             if (!cachedNavMeshData)
             {
@@ -593,6 +586,8 @@ namespace DetourNavigator
             }
         }
 
-        return navMeshCacheItem->lock()->updateTile(changedTile, std::move(cachedNavMeshData));
+        const auto updateStatus = navMeshCacheItem->lock()->updateTile(changedTile, std::move(cachedNavMeshData));
+
+        return UpdateNavMeshStatusBuilder(updateStatus).cached(cached).getResult();
     }
 }

@@ -2,8 +2,7 @@
 #define OPENMW_COMPONENTS_DETOURNAVIGATOR_CACHEDRECASTMESHMANAGER_H
 
 #include "recastmeshmanager.hpp"
-
-#include <boost/optional.hpp>
+#include "version.hpp"
 
 namespace DetourNavigator
 {
@@ -19,13 +18,15 @@ namespace DetourNavigator
 
         bool addWater(const osg::Vec2i& cellPosition, const int cellSize, const btTransform& transform);
 
-        boost::optional<RecastMeshManager::Water> removeWater(const osg::Vec2i& cellPosition);
+        std::optional<RecastMeshManager::Water> removeWater(const osg::Vec2i& cellPosition);
 
-        boost::optional<RemovedRecastMeshObject> removeObject(const ObjectId id);
+        std::optional<RemovedRecastMeshObject> removeObject(const ObjectId id);
 
         std::shared_ptr<RecastMesh> getMesh();
 
         bool isEmpty() const;
+
+        void reportNavMeshChange(Version recastMeshVersion, Version navMeshVersion);
 
     private:
         RecastMeshManager mImpl;

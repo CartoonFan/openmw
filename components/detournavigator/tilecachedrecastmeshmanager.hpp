@@ -5,6 +5,7 @@
 #include "tileposition.hpp"
 #include "settingsutils.hpp"
 #include "gettilespositions.hpp"
+#include "version.hpp"
 
 #include <components/misc/guarded.hpp>
 
@@ -69,11 +70,11 @@ namespace DetourNavigator
             return changed;
         }
 
-        boost::optional<RemovedRecastMeshObject> removeObject(const ObjectId id);
+        std::optional<RemovedRecastMeshObject> removeObject(const ObjectId id);
 
         bool addWater(const osg::Vec2i& cellPosition, const int cellSize, const btTransform& transform);
 
-        boost::optional<RecastMeshManager::Water> removeWater(const osg::Vec2i& cellPosition);
+        std::optional<RecastMeshManager::Water> removeWater(const osg::Vec2i& cellPosition);
 
         std::shared_ptr<RecastMesh> getMesh(const TilePosition& tilePosition);
 
@@ -87,6 +88,8 @@ namespace DetourNavigator
         }
 
         std::size_t getRevision() const;
+
+        void reportNavMeshChange(const TilePosition& tilePosition, Version recastMeshVersion, Version navMeshVersion);
 
     private:
         const Settings& mSettings;
@@ -103,7 +106,7 @@ namespace DetourNavigator
         bool updateTile(const ObjectId id, const btTransform& transform, const AreaType areaType,
                         const TilePosition& tilePosition, std::map<TilePosition, CachedRecastMeshManager>& tiles);
 
-        boost::optional<RemovedRecastMeshObject> removeTile(const ObjectId id, const TilePosition& tilePosition,
+        std::optional<RemovedRecastMeshObject> removeTile(const ObjectId id, const TilePosition& tilePosition,
                                                             std::map<TilePosition, CachedRecastMeshManager>& tiles);
     };
 }

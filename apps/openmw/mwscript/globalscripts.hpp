@@ -73,7 +73,7 @@ namespace MWScript
 
             void write (ESM::ESMWriter& writer, Loading::Listener& progress) const;
 
-            bool readRecord (ESM::ESMReader& reader, uint32_t type);
+            bool readRecord (ESM::ESMReader& reader, uint32_t type, const std::map<int, int>& contentFileMap);
             ///< Records for variables that do not exist are dropped silently.
             ///
             /// \return Known type?
@@ -81,6 +81,8 @@ namespace MWScript
             Locals& getLocals (const std::string& name);
             ///< If the script \a name has not been added as a global script yet, it is added
             /// automatically, but is not set to running state.
+
+            const Locals* getLocalsIfPresent (const std::string& name) const;
 
             void updatePtrs(const MWWorld::Ptr& base, const MWWorld::Ptr& updated);
             ///< Update the Ptrs stored in mTarget. Should be called after the reference has been moved to a new cell.

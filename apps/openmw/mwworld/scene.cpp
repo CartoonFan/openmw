@@ -152,7 +152,7 @@ namespace
                         ? btVector3(distanceFromDoor, 0, 0)
                         : btVector3(0, distanceFromDoor, 0);
 
-                const auto& transform = object->getCollisionObject()->getWorldTransform();
+                const auto transform = object->getTransform();
                 const btTransform closedDoorTransform(
                     Misc::Convert::toBullet(makeObjectOsgQuat(ptr.getCellRef().getPosition())),
                     transform.getOrigin()
@@ -187,7 +187,7 @@ namespace
                         *object->getShapeInstance()->getCollisionShape(),
                         object->getShapeInstance()->getAvoidCollisionShape()
                     },
-                    object->getCollisionObject()->getWorldTransform()
+                    object->getTransform()
                 );
             }
         }
@@ -340,17 +340,9 @@ namespace MWWorld
 
         if ((*iter)->getCell()->isExterior())
         {
-            const ESM::Land* land =
-                MWBase::Environment::get().getWorld()->getStore().get<ESM::Land>().search(
-                    (*iter)->getCell()->getGridX(),
-                    (*iter)->getCell()->getGridY()
-                );
-            if (land && land->mDataTypes&ESM::Land::DATA_VHGT)
-            {
-                if (const auto heightField = mPhysics->getHeightField(cellX, cellY))
-                    navigator->removeObject(DetourNavigator::ObjectId(heightField));
-                mPhysics->removeHeightField(cellX, cellY);
-            }
+            if (const auto heightField = mPhysics->getHeightField(cellX, cellY))
+                navigator->removeObject(DetourNavigator::ObjectId(heightField));
+            mPhysics->removeHeightField(cellX, cellY);
         }
 
         if ((*iter)->getCell()->hasWater())
@@ -397,7 +389,7 @@ namespace MWWorld
             if (!test && cell->getCell()->isExterior())
             {
                 osg::ref_ptr<const ESMTerrain::LandObject> land = mRendering.getLandManager()->getLand(cellX, cellY);
-                const ESM::Land::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : 0;
+                const ESM::Land::LandData* data = land ? land->getData(ESM::Land::DATA_VHGT) : nullptr;
                 if (data)
                 {
                     mPhysics->addHeightField (data->mHeights, cellX, cellY, worldsize / (verts-1), verts, data->mMinHeight, data->mMaxHeight, land.get());
@@ -455,11 +447,17 @@ namespace MWWorld
                     mPhysics->disableWater();
 
                 const auto player = MWBase::Environment::get().getWorld()->getPlayerPtr();
+
+                // By default the player is grounded, with the scene fully loaded, we validate and correct this.
+                if (player.mCell == cell) // Only run once, during initial cell load.
+                {
+                    mPhysics->traceDown(player, player.getRefData().getPosition().asVec3(), 10.f);
+                }
+
                 navigator->update(player.getRefData().getPosition().asVec3());
 
                 if (!cell->isExterior() && !(cell->getCell()->mData.mFlags & ESM::Cell::QuasiEx))
                 {
-
                     mRendering.configureAmbient(cell->getCell());
                 }
             }
@@ -563,7 +561,7 @@ namespace MWWorld
                 if (iter==mActiveCells.end())
                 {
                     refsToLoad += MWBase::Environment::get().getWorld()->getExterior(x, y)->count();
-                    cellsPositionsToLoad.push_back(std::make_pair(x, y));
+                    cellsPositionsToLoad.emplace_back(x, y);
                 }
             }
         }
@@ -755,7 +753,7 @@ namespace MWWorld
 
     Scene::Scene (MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem *physics,
                   DetourNavigator::Navigator& navigator)
-    : mCurrentCell (0), mCellChanged (false), mPhysics(physics), mRendering(rendering), mNavigator(navigator)
+    : mCurrentCell (nullptr), mCellChanged (false), mPhysics(physics), mRendering(rendering), mNavigator(navigator)
     , mCellLoadingThreshold(1024.f)
     , mPreloadDistance(Settings::Manager::getInt("preload distance", "Cells"))
     , mPreloadEnabled(Settings::Manager::getBool("preload enabled", "Cells"))
@@ -961,13 +959,13 @@ namespace MWWorld
         {
         }
 
-        virtual void doWork()
+        void doWork() override
         {
             try
             {
                 mSceneManager->getTemplate(mMesh);
             }
-            catch (std::exception& e)
+            catch (std::exception&)
             {
             }
         }
@@ -1027,7 +1025,7 @@ namespace MWWorld
                 {
                     continue;
                 }
-                teleportDoors.push_back(MWWorld::ConstPtr(&door, cellStore));
+                teleportDoors.emplace_back(&door, cellStore);
             }
         }
 
@@ -1051,7 +1049,7 @@ namespace MWWorld
                         exteriorPositions.emplace_back(pos, gridCenterToBounds(getNewGridCenter(pos)));
                     }
                 }
-                catch (std::exception& e)
+                catch (std::exception&)
                 {
                     // ignore error for now, would spam the log too much
                 }

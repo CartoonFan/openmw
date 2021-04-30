@@ -126,9 +126,9 @@ void Launcher::MainDialog::createPages()
 
     mPlayPage = new PlayPage(this);
     mDataFilesPage = new DataFilesPage(mCfgMgr, mGameSettings, mLauncherSettings, this);
-    mGraphicsPage = new GraphicsPage(mCfgMgr, mEngineSettings, this);
+    mGraphicsPage = new GraphicsPage(mEngineSettings, this);
     mSettingsPage = new SettingsPage(mCfgMgr, mGameSettings, mLauncherSettings, this);
-    mAdvancedPage = new AdvancedPage(mCfgMgr, mGameSettings, mEngineSettings, this);
+    mAdvancedPage = new AdvancedPage(mGameSettings, mEngineSettings, this);
 
     // Set the combobox of the play page to imitate the combobox on the datafilespage
     mPlayPage->setProfilesModel(mDataFilesPage->profilesModel());
@@ -211,10 +211,10 @@ void Launcher::MainDialog::setVersionLabel()
         versionLabel->setText(tr("OpenMW development (%1)").arg(revision.left(10)));
 
     // Add the compile date and time
-    versionLabel->setToolTip(tr("Compiled on %1 %2").arg(QLocale(QLocale::C).toDate(QString(__DATE__).simplified(),
-                                                                                    QLatin1String("MMM d yyyy")).toString(Qt::SystemLocaleLongDate),
-                                                         QLocale(QLocale::C).toTime(QString(__TIME__).simplified(),
-                                                                                    QLatin1String("hh:mm:ss")).toString(Qt::SystemLocaleShortDate)));
+    auto compileDate = QLocale(QLocale::C).toDate(QString(__DATE__).simplified(), QLatin1String("MMM d yyyy"));
+    auto compileTime = QLocale(QLocale::C).toTime(QString(__TIME__).simplified(), QLatin1String("hh:mm:ss"));
+    versionLabel->setToolTip(tr("Compiled on %1 %2").arg(QLocale::system().toString(compileDate, QLocale::LongFormat),
+                                                         QLocale::system().toString(compileTime, QLocale::ShortFormat)));
 }
 
 bool Launcher::MainDialog::setup()

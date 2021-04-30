@@ -5,6 +5,7 @@
 #include <components/esm/loadmgef.hpp>
 #include <components/detournavigator/navigator.hpp>
 #include <components/misc/coordinateconverter.hpp>
+#include <components/settings/settings.hpp>
 
 #include "../mwbase/world.hpp"
 #include "../mwbase/environment.hpp"
@@ -24,10 +25,17 @@
 
 #include <osg/Quat>
 
+namespace
+{
+    float divOrMax(float dividend, float divisor)
+    {
+        return divisor == 0 ? std::numeric_limits<float>::max() * std::numeric_limits<float>::epsilon() : dividend / divisor;
+    }
+}
+
 MWMechanics::AiPackage::AiPackage(AiPackageTypeId typeId, const Options& options) :
     mTypeId(typeId),
     mOptions(options),
-    mTimer(AI_REACTION_TIME + 1.0f), // to force initial pathbuild
     mTargetActorRefId(""),
     mTargetActorId(-1),
     mRotateOnTheRunChecks(0),
@@ -63,7 +71,7 @@ MWWorld::Ptr MWMechanics::AiPackage::getTarget() const
 void MWMechanics::AiPackage::reset()
 {
     // reset all members
-    mTimer = AI_REACTION_TIME + 1.0f;
+    mReaction.reset();
     mIsShortcutting = false;
     mShortcutProhibited = false;
     mShortcutFailPos = osg::Vec3f();
@@ -74,7 +82,7 @@ void MWMechanics::AiPackage::reset()
 
 bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f& dest, float duration, float destTolerance)
 {
-    mTimer += duration; //Update timer
+    const Misc::TimerStatus timerStatus = mReaction.update(duration);
 
     const osg::Vec3f position = actor.getRefData().getPosition().asVec3(); //position of the actor
     MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -87,6 +95,7 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
     //... But AI processing distance may increase in the future.
     if (isNearInactiveCell(position))
     {
+        actor.getClass().getMovementSettings(actor).mPosition[0] = 0;
         actor.getClass().getMovementSettings(actor).mPosition[1] = 0;
         world->updateActorPath(actor, mPathFinder.getPath(), halfExtents, position, dest);
         return false;
@@ -94,15 +103,15 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
 
     const float distToTarget = distance(position, dest);
     const bool isDestReached = (distToTarget <= destTolerance);
+    const bool actorCanMoveByZ = canActorMoveByZAxis(actor);
 
-    if (!isDestReached && mTimer > AI_REACTION_TIME)
+    if (!isDestReached && timerStatus == Misc::TimerStatus::Elapsed)
     {
         if (actor.getClass().isBipedal(actor))
             openDoors(actor);
 
         const bool wasShortcutting = mIsShortcutting;
         bool destInLOS = false;
-        const bool actorCanMoveByZ = canActorMoveByZAxis(actor);
 
         // Prohibit shortcuts for AiWander, if the actor can not move in 3 dimensions.
         mIsShortcutting = actorCanMoveByZ
@@ -113,7 +122,7 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
             if (wasShortcutting || doesPathNeedRecalc(dest, actor)) // if need to rebuild path
             {
                 const auto pathfindingHalfExtents = world->getPathfindingHalfExtents(actor);
-                mPathFinder.buildPath(actor, position, dest, actor.getCell(), getPathGridGraph(actor.getCell()),
+                mPathFinder.buildLimitedPath(actor, position, dest, actor.getCell(), getPathGridGraph(actor.getCell()),
                     pathfindingHalfExtents, getNavigatorFlags(actor), getAreaCosts(actor));
                 mRotateOnTheRunChecks = 3;
 
@@ -140,15 +149,15 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
                     mPathFinder.addPointToPath(dest); //Adds the final destination to the path, to try to get to where you want to go
             }
         }
-
-        mTimer = 0;
     }
 
-    const float actorTolerance = 2 * actor.getClass().getSpeed(actor) * duration
+    const float actorTolerance = 2 * actor.getClass().getMaxSpeed(actor) * duration
             + 1.2 * std::max(halfExtents.x(), halfExtents.y());
     const float pointTolerance = std::max(MIN_TOLERANCE, actorTolerance);
 
-    mPathFinder.update(position, pointTolerance, DEFAULT_TOLERANCE);
+    static const bool smoothMovement = Settings::Manager::getBool("smooth movement", "Game");
+    mPathFinder.update(position, pointTolerance, DEFAULT_TOLERANCE,
+                       /*shortenIfAlmostStraight=*/smoothMovement, actorCanMoveByZ);
 
     if (isDestReached || mPathFinder.checkPathCompleted()) // if path is finished
     {
@@ -158,6 +167,8 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
         world->removeActorPath(actor);
         return true;
     }
+    else if (mPathFinder.getPath().empty())
+        return false;
 
     world->updateActorPath(actor, mPathFinder.getPath(), halfExtents, position, dest);
 
@@ -169,11 +180,32 @@ bool MWMechanics::AiPackage::pathTo(const MWWorld::Ptr& actor, const osg::Vec3f&
     }
 
     // turn to next path point by X,Z axes
-    zTurn(actor, mPathFinder.getZAngleToNext(position.x(), position.y()));
+    float zAngleToNext = mPathFinder.getZAngleToNext(position.x(), position.y());
+    zTurn(actor, zAngleToNext);
     smoothTurn(actor, mPathFinder.getXAngleToNext(position.x(), position.y(), position.z()), 0);
 
     const auto destination = mPathFinder.getPath().empty() ? dest : mPathFinder.getPath().front();
     mObstacleCheck.update(actor, destination, duration);
+
+    if (smoothMovement)
+    {
+        const float smoothTurnReservedDist = 150;
+        auto& movement = actor.getClass().getMovementSettings(actor);
+        float distToNextSqr = osg::Vec2f(destination.x() - position.x(), destination.y() - position.y()).length2();
+        float diffAngle = zAngleToNext - actor.getRefData().getPosition().rot[2];
+        if (std::cos(diffAngle) < -0.1)
+            movement.mPosition[0] = movement.mPosition[1] = 0;
+        else if (distToNextSqr > smoothTurnReservedDist * smoothTurnReservedDist)
+        { // Go forward (and slowly turn towards the next path point)
+            movement.mPosition[0] = 0;
+            movement.mPosition[1] = 1;
+        }
+        else
+        { // Next path point is near, so use diagonal movement to follow the path precisely.
+            movement.mPosition[0] = std::sin(diffAngle);
+            movement.mPosition[1] = std::max(std::cos(diffAngle), 0.f);
+        }
+    }
 
     // handle obstacles on the way
     evadeObstacles(actor);
@@ -300,7 +332,7 @@ bool MWMechanics::AiPackage::checkWayIsClearForActor(const osg::Vec3f& startPoin
     if (canActorMoveByZAxis(actor))
         return true;
 
-    const float actorSpeed = actor.getClass().getSpeed(actor);
+    const float actorSpeed = actor.getClass().getMaxSpeed(actor);
     const float maxAvoidDist = AI_REACTION_TIME * actorSpeed + actorSpeed / getAngularVelocity(actorSpeed) * 2; // *2 - for reliability
     const float distToTarget = osg::Vec2f(endPoint.x(), endPoint.y()).length();
 
@@ -360,7 +392,7 @@ bool MWMechanics::AiPackage::isNearInactiveCell(osg::Vec3f position)
 bool MWMechanics::AiPackage::isReachableRotatingOnTheRun(const MWWorld::Ptr& actor, const osg::Vec3f& dest)
 {
     // get actor's shortest radius for moving in circle
-    float speed = actor.getClass().getSpeed(actor);
+    float speed = actor.getClass().getMaxSpeed(actor);
     speed += speed * 0.1f; // 10% real speed inaccuracy
     float radius = speed / getAngularVelocity(speed);
 
@@ -387,13 +419,20 @@ bool MWMechanics::AiPackage::isReachableRotatingOnTheRun(const MWWorld::Ptr& act
 
 DetourNavigator::Flags MWMechanics::AiPackage::getNavigatorFlags(const MWWorld::Ptr& actor) const
 {
+    static const bool allowToFollowOverWaterSurface = Settings::Manager::getBool("allow actors to follow over water surface", "Game");
+
     const MWWorld::Class& actorClass = actor.getClass();
     DetourNavigator::Flags result = DetourNavigator::Flag_none;
 
-    if (actorClass.isPureWaterCreature(actor) || (getTypeId() != AiPackageTypeId::Wander && actorClass.canSwim(actor)))
+    if ((actorClass.isPureWaterCreature(actor)
+         || (getTypeId() != AiPackageTypeId::Wander
+             && ((allowToFollowOverWaterSurface && getTypeId() == AiPackageTypeId::Follow)
+                 || actorClass.canSwim(actor)
+                 || hasWaterWalking(actor)))
+        ) && actorClass.getSwimSpeed(actor) > 0)
         result |= DetourNavigator::Flag_swim;
 
-    if (actorClass.canWalk(actor))
+    if (actorClass.canWalk(actor) && actor.getClass().getWalkSpeed(actor) > 0)
         result |= DetourNavigator::Flag_walk;
 
     if (actorClass.isBipedal(actor) && getTypeId() != AiPackageTypeId::Wander)
@@ -409,15 +448,15 @@ DetourNavigator::AreaCosts MWMechanics::AiPackage::getAreaCosts(const MWWorld::P
     const MWWorld::Class& actorClass = actor.getClass();
 
     if (flags & DetourNavigator::Flag_swim)
-        costs.mWater = costs.mWater / actorClass.getSwimSpeed(actor);
+        costs.mWater = divOrMax(costs.mWater, actorClass.getSwimSpeed(actor));
 
     if (flags & DetourNavigator::Flag_walk)
     {
         float walkCost;
         if (getTypeId() == AiPackageTypeId::Wander)
-            walkCost = 1.0 / actorClass.getWalkSpeed(actor);
+            walkCost = divOrMax(1.0, actorClass.getWalkSpeed(actor));
         else
-            walkCost = 1.0 / actorClass.getRunSpeed(actor);
+            walkCost = divOrMax(1.0, actorClass.getRunSpeed(actor));
         costs.mDoor = costs.mDoor * walkCost;
         costs.mPathgrid = costs.mPathgrid * walkCost;
         costs.mGround = costs.mGround * walkCost;

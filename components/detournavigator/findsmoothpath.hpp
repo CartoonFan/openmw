@@ -18,10 +18,8 @@
 
 #include <components/misc/convert.hpp>
 
-#include <boost/optional.hpp>
-
 #include <osg/Vec3f>
-
+#include <cassert>
 #include <vector>
 
 class dtNavMesh;
@@ -58,7 +56,7 @@ namespace DetourNavigator
         dtPolyRef steerPosRef;
     };
 
-    boost::optional<SteerTarget> getSteerTarget(const dtNavMeshQuery& navQuery, const osg::Vec3f& startPos,
+    std::optional<SteerTarget> getSteerTarget(const dtNavMeshQuery& navQuery, const osg::Vec3f& startPos,
             const osg::Vec3f& endPos, const float minTargetDist, const std::vector<dtPolyRef>& path);
 
     template <class OutputIterator>
@@ -105,13 +103,16 @@ namespace DetourNavigator
         return dtStatusSucceed(status);
     }
 
+    dtPolyRef findNearestPolyExpanding(const dtNavMeshQuery& query, const dtQueryFilter& filter,
+            const osg::Vec3f& center, const osg::Vec3f& halfExtents);
+
     struct MoveAlongSurfaceResult
     {
         osg::Vec3f mResultPos;
         std::vector<dtPolyRef> mVisited;
     };
 
-    inline boost::optional<MoveAlongSurfaceResult> moveAlongSurface(const dtNavMeshQuery& navMeshQuery,
+    inline std::optional<MoveAlongSurfaceResult> moveAlongSurface(const dtNavMeshQuery& navMeshQuery,
         const dtPolyRef startRef, const osg::Vec3f& startPos, const osg::Vec3f& endPos, const dtQueryFilter& filter,
         const std::size_t maxVisitedSize)
     {
@@ -128,7 +129,7 @@ namespace DetourNavigator
         return {std::move(result)};
     }
 
-    inline boost::optional<std::vector<dtPolyRef>> findPath(const dtNavMeshQuery& navMeshQuery, const dtPolyRef startRef,
+    inline std::optional<std::vector<dtPolyRef>> findPath(const dtNavMeshQuery& navMeshQuery, const dtPolyRef startRef,
         const dtPolyRef endRef, const osg::Vec3f& startPos, const osg::Vec3f& endPos, const dtQueryFilter& queryFilter,
         const std::size_t maxSize)
     {
@@ -144,7 +145,7 @@ namespace DetourNavigator
         return {std::move(result)};
     }
 
-    inline boost::optional<float> getPolyHeight(const dtNavMeshQuery& navMeshQuery, const dtPolyRef ref, const osg::Vec3f& pos)
+    inline std::optional<float> getPolyHeight(const dtNavMeshQuery& navMeshQuery, const dtPolyRef ref, const osg::Vec3f& pos)
     {
         float result = 0.0f;
         const auto status = navMeshQuery.getPolyHeight(ref, pos.ptr(), &result);
@@ -160,12 +161,12 @@ namespace DetourNavigator
     {
         // Iterate over the path to find smooth path on the detail mesh surface.
         osg::Vec3f iterPos;
-        navMeshQuery.closestPointOnPoly(polygonPath.front(), start.ptr(), iterPos.ptr(), 0);
+        navMeshQuery.closestPointOnPoly(polygonPath.front(), start.ptr(), iterPos.ptr(), nullptr);
 
         osg::Vec3f targetPos;
-        navMeshQuery.closestPointOnPoly(polygonPath.back(), end.ptr(), targetPos.ptr(), 0);
+        navMeshQuery.closestPointOnPoly(polygonPath.back(), end.ptr(), targetPos.ptr(), nullptr);
 
-        const float SLOP = 0.01f;
+        constexpr float slop = 0.01f;
 
         *out++ = iterPos;
 
@@ -176,7 +177,7 @@ namespace DetourNavigator
         while (!polygonPath.empty() && smoothPathSize < maxSmoothPathSize)
         {
             // Find location to steer towards.
-            const auto steerTarget = getSteerTarget(navMeshQuery, iterPos, targetPos, SLOP, polygonPath);
+            const auto steerTarget = getSteerTarget(navMeshQuery, iterPos, targetPos, slop, polygonPath);
 
             if (!steerTarget)
                 break;
@@ -208,7 +209,7 @@ namespace DetourNavigator
             iterPos.y() = h;
 
             // Handle end of path and off-mesh links when close enough.
-            if (endOfPath && inRange(iterPos, steerTarget->steerPos, SLOP, 1.0f))
+            if (endOfPath && inRange(iterPos, steerTarget->steerPos, slop, 1.0f))
             {
                 // Reached end of path.
                 iterPos = targetPos;
@@ -216,7 +217,7 @@ namespace DetourNavigator
                 ++smoothPathSize;
                 break;
             }
-            else if (offMeshConnection && inRange(iterPos, steerTarget->steerPos, SLOP, 1.0f))
+            else if (offMeshConnection && inRange(iterPos, steerTarget->steerPos, slop, 1.0f))
             {
                 // Advance the path up to and over the off-mesh connection.
                 dtPolyRef prevRef = 0;
@@ -284,29 +285,11 @@ namespace DetourNavigator
         queryFilter.setAreaCost(AreaType_pathgrid, areaCosts.mPathgrid);
         queryFilter.setAreaCost(AreaType_ground, areaCosts.mGround);
 
-        dtPolyRef startRef = 0;
-        osg::Vec3f startPolygonPosition;
-        for (int i = 0; i < 3; ++i)
-        {
-            const auto status = navMeshQuery.findNearestPoly(start.ptr(), (halfExtents * (1 << i)).ptr(), &queryFilter,
-                &startRef, startPolygonPosition.ptr());
-            if (!dtStatusFailed(status) && startRef != 0)
-                break;
-        }
-
+        dtPolyRef startRef = findNearestPolyExpanding(navMeshQuery, queryFilter, start, halfExtents);
         if (startRef == 0)
             return Status::StartPolygonNotFound;
 
-        dtPolyRef endRef = 0;
-        osg::Vec3f endPolygonPosition;
-        for (int i = 0; i < 3; ++i)
-        {
-            const auto status = navMeshQuery.findNearestPoly(end.ptr(), (halfExtents * (1 << i)).ptr(), &queryFilter,
-                &endRef, endPolygonPosition.ptr());
-            if (!dtStatusFailed(status) && endRef != 0)
-                break;
-        }
-
+        dtPolyRef endRef = findNearestPolyExpanding(navMeshQuery, queryFilter, end, halfExtents);
         if (endRef == 0)
             return Status::EndPolygonNotFound;
 

@@ -13,18 +13,12 @@ namespace MyGUI
 
 namespace MWGui
 {
-    class WindowManager;
-}
-
-
-namespace MWGui
-{
     class TravelWindow : public ReferenceInterface, public WindowBase
     {
         public:
             TravelWindow();
 
-            void setPtr (const MWWorld::Ptr& actor);
+            void setPtr (const MWWorld::Ptr& actor) override;
 
         protected:
             MyGUI::Button* mCancelButton;
@@ -43,7 +37,7 @@ namespace MWGui
 
             void updateLabels();
 
-            virtual void onReferenceUnavailable();
+            void onReferenceUnavailable() override;
     };
 }
 
