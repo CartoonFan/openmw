@@ -57,6 +57,16 @@ namespace LuaUi
             Element::erase(Element::sMenuElements.begin()->second.get());
     }
 
+    void updateAllElementCoords()
+    {
+        auto update = [](Element* element) {
+            if (element->mRoot)
+                element->mRoot->updateCoord();
+        };
+        Element::forEach(false, update);
+        Element::forEach(true, update);
+    }
+
     bool warnUnused(std::vector<std::string>& warnings, sol::object object, const std::string& tableName,
         const std::vector<std::string_view>& usedKeys, bool generateWarningStrings)
     {
